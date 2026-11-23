@@ -58,7 +58,7 @@ export default function FloorPlanPage() {
               <Card>
                 <CardHeader title="Booth traffic by hour" subtitle="Aggregate footfall across all zones — yesterday" />
                 <div className="p-5">
-                  <BarChart data={BOOTH_TRAFFIC_HOURS} color="#6366f1" height={220} showValues format={(n) => `${n}%`} />
+                  <BarChart data={BOOTH_TRAFFIC_HOURS} color="#6854d9" height={220} showValues format={(n) => `${n}%`} />
                 </div>
               </Card>
               <Card>

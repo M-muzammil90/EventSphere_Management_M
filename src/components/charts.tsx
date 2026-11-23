@@ -28,7 +28,7 @@ export function AreaChart({
   data,
   keys = ["a", "b"],
   labels = ["This year", "Last year"],
-  colors = ["#6366f1", "#06b6d4"],
+  colors = ["#6854d9", "#0ea5e9"],
   height = 240,
   format = (n: number) => String(n),
   showGrid = true,
@@ -74,7 +74,7 @@ export function AreaChart({
             const y = pad.t + (i * ih) / ticks;
             return (
               <g key={i}>
-                <line x1={pad.l} x2={W - pad.r} y1={y} y2={y} stroke="#e2e8f0" strokeWidth="1" strokeDasharray={i ? "4 6" : ""} />
+                <line x1={pad.l} x2={W - pad.r} y1={y} y2={y} stroke="#e7e9f2" strokeWidth="1" strokeDasharray={i ? "4 6" : ""} />
                 <text x={pad.l - 10} y={y + 4} textAnchor="end" className="fill-slate-400" style={{ fontSize: 10.5, fontWeight: 600 }}>
                   {format(Math.round(max - (i * max) / ticks))}
                 </text>
@@ -92,7 +92,7 @@ export function AreaChart({
                 d={line}
                 fill="none"
                 stroke={colors[ki]}
-                strokeWidth="2.5"
+                strokeWidth="2.25"
                 strokeLinecap="round"
                 strokeDasharray={ki === 1 ? "6 5" : undefined}
                 style={{ filter: `drop-shadow(0 4px 10px ${colors[ki]}44)` }}
@@ -172,7 +172,7 @@ export function AreaChart({
 export function BarChart({
   data,
   height = 240,
-  color = "#6366f1",
+  color = "#6854d9",
   format = (n: number) => String(n),
   horizontal = false,
   showValues = false,
@@ -267,7 +267,7 @@ export function Donut({
     <div className="flex flex-col items-center gap-6 sm:flex-row sm:gap-8">
       <div className="relative shrink-0" style={{ width: size, height: size }}>
         <svg width={size} height={size} className="-rotate-90">
-          <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#f1f5f9" strokeWidth={thickness} />
+          <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#e7e9f2" strokeWidth={thickness} />
           {data.map((d, i) => {
             const len = (d.value / total) * c;
             const off = acc;
@@ -323,7 +323,7 @@ export function Donut({
 /* ----------------------------- Sparkline ------------------------------ */
 export function Sparkline({
   values,
-  color = "#6366f1",
+  color = "#6854d9",
   width = 110,
   height = 34,
   fill = true,
@@ -364,7 +364,7 @@ export function Gauge({
   size = 148,
   label,
   sub,
-  color = "#6366f1",
+  color = "#6854d9",
 }: {
   value: number;
   size?: number;
@@ -381,7 +381,7 @@ export function Gauge({
           <path
             d={`M12,${size / 1.75 - 8} A${r},${r} 0 0 1 ${size - 12},${size / 1.75 - 8}`}
             fill="none"
-            stroke="#f1f5f9"
+            stroke="#e7e9f2"
             strokeWidth="13"
             strokeLinecap="round"
           />
@@ -410,7 +410,7 @@ export function Heatmap({
   rows,
   cols,
   values,
-  color = "#4f46e5",
+  color = "#5947c6",
 }: {
   rows: string[];
   cols: string[];
@@ -449,7 +449,7 @@ export function Heatmap({
                       onMouseLeave={() => setTip(null)}
                       className="h-7 cursor-pointer rounded-[5px] transition-transform duration-150 hover:scale-[1.14]"
                       style={{
-                        background: a < 0.06 ? "#f1f5f9" : color,
+                        background: a < 0.06 ? "#e7e9f2" : color,
                         opacity: a < 0.06 ? 1 : 0.22 + a * 0.78,
                       }}
                       title={`${rows[ri]} ${cols[ci]}:00 — ${v}% traffic`}
@@ -499,7 +499,7 @@ export function RadialStack({
           const c = 2 * Math.PI * r;
           return (
             <g key={it.label}>
-              <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#f1f5f9" strokeWidth="9" />
+              <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#e7e9f2" strokeWidth="9" />
               <circle
                 cx={size / 2}
                 cy={size / 2}
@@ -528,7 +528,7 @@ export function RadialStack({
 /* ------------------------------- Funnel ------------------------------- */
 export function Funnel({ steps }: { steps: { label: string; v: number; pct: number }[] }) {
   const [hover, setHover] = useState<number | null>(null);
-  const colors = ["#4f46e5", "#6366f1", "#06b6d4", "#0891b2", "#f97316"];
+  const colors = ["#5947c6", "#6854d9", "#0ea5e9", "#0891b2", "#f97316"];
   return (
     <div className="space-y-2.5">
       {steps.map((s, i) => (
@@ -590,7 +590,7 @@ export function StackedBar({ segments, height = 10 }: { segments: { value: numbe
 }
 
 /* ---------------------------- Live line chart ------------------------- */
-export function LiveChart({ height = 90, color = "#06b6d4" }: { height?: number; color?: string }) {
+export function LiveChart({ height = 90, color = "#0ea5e9" }: { height?: number; color?: string }) {
   const [seed, setSeed] = useState(0);
   const values = useMemo(() => {
     let v = 50;

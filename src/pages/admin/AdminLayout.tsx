@@ -1,15 +1,15 @@
 import { useEffect, useState } from "react";
-import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { cn } from "@/utils/cn";
 import { useStore } from "@/lib/store";
-import { Avatar, Badge, Button } from "@/components/ui";
+import { Avatar } from "@/components/ui";
+import { ApiStatus } from "@/components/ApiStatus";
 import { Logo } from "@/components/SiteLayout";
 import {
   BarChart3,
   Bell,
   Building2,
   CalendarClock,
-  ChevronDown,
   ChevronsLeft,
   ChevronsRight,
   CircleHelp,
@@ -18,10 +18,12 @@ import {
   LifeBuoy,
   LogOut,
   Map,
+  MessageSquareHeart,
   MessageSquare,
   Menu,
   Search,
   Settings,
+  Users,
   Sparkles,
   X,
 } from "lucide-react";
@@ -30,6 +32,8 @@ const NAV = [
   { to: "/admin", label: "Overview", icon: LayoutDashboard, end: true },
   { to: "/admin/expos", label: "Expo Management", icon: CalendarClock, badge: "8" },
   { to: "/admin/exhibitors", label: "Exhibitors", icon: Building2, badge: "3" },
+  { to: "/admin/attendees", label: "Attendees", icon: Users },
+  { to: "/admin/feedback", label: "Feedback", icon: MessageSquareHeart, badge: "9" },
   { to: "/admin/schedule", label: "Schedule", icon: Sparkles },
   { to: "/admin/floor-plan", label: "Floor Plan & Booths", icon: Map },
   { to: "/admin/analytics", label: "Analytics & Reports", icon: BarChart3 },
@@ -79,7 +83,7 @@ export default function AdminLayout() {
               className={({ isActive }) =>
                 cn(
                   "group relative flex items-center gap-3 rounded-xl px-2.5 py-2.5 text-[13px] font-semibold transition-all duration-200",
-                  isActive ? "bg-gradient-to-r from-brand-600/90 to-brand-500/60 text-white shadow-lg shadow-brand-900/40" : "text-white/55 hover:bg-white/8 hover:text-white"
+                  isActive ? "bg-brand-500 text-white shadow-[0_1px_2px_rgba(11,14,29,.25)]" : "text-white/55 hover:bg-white/[0.07] hover:text-white"
                 )
               }
             >
@@ -116,24 +120,7 @@ export default function AdminLayout() {
           ))}
         </nav>
 
-        {!collapsed && (
-          <div className="m-3 rounded-2xl bg-gradient-to-br from-brand-600/25 to-aqua-500/12 p-4 ring-1 ring-white/10">
-            <div className="flex items-center gap-2">
-              <span className="grid size-7 place-items-center rounded-lg bg-emerald-400/20 text-emerald-300">
-                <span className="size-1.5 animate-pulse rounded-full bg-emerald-400" />
-              </span>
-              <p className="text-[11.5px] font-bold text-white">Live: Munich</p>
-            </div>
-            <p className="mt-2 text-[11px] leading-snug text-white/55">
-              Industrial Innovate Fair is running now with 9,310 attendees on floor.
-            </p>
-            <Link to="/admin/analytics">
-              <Button size="xs" variant="outline" className="mt-3 w-full border-white/20 bg-white/10 text-white hover:bg-white/20">
-                View live data
-              </Button>
-            </Link>
-          </div>
-        )}
+      
 
         <div className="shrink-0 border-t border-white/8 p-3">
           <div className={cn("flex items-center gap-2.5 rounded-xl p-1.5 transition hover:bg-white/8", collapsed && "justify-center")}>
@@ -175,10 +162,13 @@ export default function AdminLayout() {
           </button>
 
           <div className="hidden min-w-0 sm:block">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Admin / Organizer</p>
+            <div className="flex items-center gap-2 mb-0.5">
+              <span className="inline-flex items-center rounded-md bg-brand-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-brand-700">
+                Admin / Organizer
+              </span>
+            </div>
             <h1 className="truncate font-display text-[16px] font-bold tracking-tight text-slate-900">{current}</h1>
           </div>
-
           <div className="relative ml-auto hidden max-w-sm flex-1 md:block">
             <Search className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
             <input
@@ -189,7 +179,7 @@ export default function AdminLayout() {
           </div>
 
           <div className="ml-auto flex items-center gap-2 md:ml-0">
-            <Badge tone="success" dot className="hidden sm:inline-flex">Synced 30s ago</Badge>
+            <div className="hidden sm:block"><ApiStatus compact /></div>
             <button
               onClick={() => toast({ title: "4 unread notifications", body: "Open the bell in the top-right of the public site.", tone: "info" })}
               className="relative grid size-9.5 place-items-center rounded-xl text-slate-500 transition hover:bg-slate-100"
@@ -198,13 +188,23 @@ export default function AdminLayout() {
               <Bell className="size-4.5" />
               <span className="absolute right-2 top-2 size-2 rounded-full bg-rose-500 ring-2 ring-white" />
             </button>
-            <div className="flex items-center gap-2 rounded-xl border border-slate-200 py-1 pl-1 pr-2.5">
+            <div className="flex items-center gap-2 rounded-xl border border-slate-200 py-1 pl-1 pr-2">
               <Avatar src={user?.avatar} name={user?.name} size={30} />
               <div className="hidden leading-tight lg:block">
                 <p className="text-[12px] font-bold text-slate-900">{user?.name?.split(" ")[0]}</p>
-                <p className="text-[10px] text-slate-400">Organizer</p>
+                <p className="text-[10px] text-slate-400">{(user?.role === "organizer" || user?.role === "admin") ? "Admin / Organizer" : user?.role || "Organizer"}</p>
               </div>
-              <ChevronDown className="hidden size-3.5 text-slate-400 lg:block" />
+              <button
+                type="button"
+                onClick={() => {
+                  logout();
+                  nav("/login?role=organizer");
+                }}
+                title="Switch account or sign out"
+                className="ml-1 rounded-lg p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+              >
+                <LogOut className="size-3.5" />
+              </button>
             </div>
           </div>
         </header>

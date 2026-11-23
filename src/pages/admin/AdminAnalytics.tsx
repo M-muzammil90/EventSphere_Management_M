@@ -1,5 +1,6 @@
 import { useState } from "react";
 import {
+  EXPOS,
   ATTENDANCE_TREND,
   BOOTH_TRAFFIC_HOURS,
   EXHIBITORS,
@@ -11,11 +12,15 @@ import {
   REGISTRATION_SPLIT,
   SESSION_POPULARITY,
 } from "@/lib/data";
-import { Badge, Button, Card, CardHeader, Progress, Reveal, Select, Tabs, Table, Td, Th } from "@/components/ui";
+import { Badge, Button, Card, CardHeader, Field, Input, Modal, Progress, Reveal, Select, Tabs, Table, Td, Th } from "@/components/ui";
 import { StatCard } from "@/components/shared";
 import { AreaChart, BarChart, Donut, Funnel, Gauge, Heatmap, RadialStack, Sparkline, StackedBar } from "@/components/charts";
+import { useExport } from "@/components/kit";
 import { fmt, money, useStore } from "@/lib/store";
-import { Activity, BarChart3, Download, FileText, Globe2, Mail, Percent, Printer, Target, TrendingUp, Users } from "lucide-react";
+import {
+  Activity, BarChart3, CalendarRange, Download, FileSpreadsheet, FileText, GitCompareArrows, Globe2,
+  Mail, Percent, Printer, RefreshCw, Target, TrendingUp, Users,
+} from "lucide-react";
 
 const REPORTS = [
   { n: "Attendee engagement report", d: "Check-ins, dwell time, session attendance", s: "Ready", size: "2.4 MB", f: "PDF" },
@@ -28,8 +33,13 @@ const REPORTS = [
 
 export default function AdminAnalytics() {
   const { toast } = useStore();
+  const exportApi = useExport();
   const [range, setRange] = useState("30d");
   const [tab, setTab] = useState("overview");
+  const [expo, setExpo] = useState("Global Tech Summit 2026");
+  const [custom, setCustom] = useState({ from: "2026-02-18", to: "2026-03-18" });
+  const [compare, setCompare] = useState(true);
+  const [schedule, setSchedule] = useState(false);
 
   return (
     <div className="space-y-6">
@@ -40,16 +50,51 @@ export default function AdminAnalytics() {
         </div>
         <div className="flex flex-wrap items-center gap-2.5">
           <Badge tone="success" dot>Live data</Badge>
-          <Select value={range} onChange={(e) => setRange(e.target.value)} className="h-9.5 min-w-[150px]">
-            <option value="24h">Last 24 hours</option>
-            <option value="7d">Last 7 days</option>
-            <option value="30d">Last 30 days</option>
+          <Button size="sm" variant="outline" className="border-slate-200 text-slate-600" icon={<CalendarRange className="size-4" />} onClick={() => setSchedule(true)}>
+            {range === "custom" ? `${custom.from} → ${custom.to}` : range === "24h" ? "Last 24 hours" : range === "7d" ? "Last 7 days" : range === "30d" ? "Last 30 days" : range === "ytd" ? "Year to date" : "All time"}
+          </Button>
+          <Select value={expo} onChange={(e) => setExpo(e.target.value)} className="h-9.5 min-w-[210px]">
+            {EXPOS.map((e) => <option key={e.id}>{e.title}</option>)}
+            <option>All expos</option>
+          </Select>
+          <Select value={range} onChange={(e) => setRange(e.target.value)} className="h-9.5 min-w-[130px]">
+            <option value="24h">24 hours</option>
+            <option value="7d">7 days</option>
+            <option value="30d">30 days</option>
             <option value="ytd">Year to date</option>
             <option value="all">All time</option>
+            <option value="custom">Custom range</option>
           </Select>
+          <Button size="sm" variant={compare ? "soft" : "secondary"} onClick={() => setCompare((v) => !v)} icon={<GitCompareArrows className="size-4" />}>
+            {compare ? "Comparing" : "Compare"}
+          </Button>
           <Button size="sm" variant="secondary" icon={<Printer className="size-4" />} onClick={() => window.print()}>Print</Button>
-          <Button size="sm" icon={<Download className="size-4" />} onClick={() => toast({ title: "Full analytics export queued", body: "You'll receive an email when it's ready.", tone: "success" })}>Export all</Button>
+          <Button size="sm" variant="secondary" icon={<FileSpreadsheet className="size-4" />} onClick={() => exportApi.xlsx(`analytics-${range}`)}>XLSX</Button>
+          <Button size="sm" icon={<Download className="size-4" />} onClick={() => exportApi.pdf(`analytics-${range}`)}>Export PDF</Button>
         </div>
+        <Card className="p-4">
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+            <div className="flex items-center gap-2.5">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Report scope</span>
+              <Badge tone="brand">{expo}</Badge>
+              <Badge tone="neutral" className="bg-slate-50">
+                {range === "custom" ? `${custom.from} → ${custom.to}` : range === "24h" ? "Last 24 hours" : range === "7d" ? "Last 7 days" : range === "30d" ? "Last 30 days" : range === "ytd" ? "Year to date" : "All time"}
+              </Badge>
+              {compare && <Badge tone="info">vs. previous period</Badge>}
+            </div>
+            <div className="ml-auto flex flex-wrap items-center gap-3 text-[12px]">
+              <span className="inline-flex items-center gap-1.5 text-slate-500">
+                <span className="size-2 rounded-full bg-brand-500" /> Current
+              </span>
+              <span className="inline-flex items-center gap-1.5 text-slate-500">
+                <span className="size-2 rounded-full bg-aqua-500" /> Previous
+              </span>
+              <span className="inline-flex items-center gap-1.5 text-slate-400">
+                <RefreshCw className="size-3.5" /> Refreshed 30s ago
+              </span>
+            </div>
+          </div>
+        </Card>
       </div>
 
       <Tabs
@@ -60,6 +105,7 @@ export default function AdminAnalytics() {
           { id: "attendees", label: "Attendee engagement" },
           { id: "booths", label: "Booth traffic" },
           { id: "sessions", label: "Sessions" },
+          { id: "events", label: "Event-wise reports" },
           { id: "reports", label: "Reports" },
         ]}
       />
@@ -67,8 +113,8 @@ export default function AdminAnalytics() {
       {tab === "overview" && (
         <>
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <StatCard label="Engagement score" value="87 / 100" delta="+5.2" icon={<Activity className="size-5" />} tone="brand" sub="Composite of all signals" spark={<Sparkline values={[62, 68, 71, 74, 79, 83, 87]} color="#6366f1" width={140} height={32} />} />
-            <StatCard label="Avg. dwell time" value="3h 42m" delta="+18.0%" icon={<Users className="size-5" />} tone="info" sub="Time on floor per attendee" spark={<Sparkline values={[140, 162, 155, 188, 202, 214, 222]} color="#06b6d4" width={140} height={32} />} />
+            <StatCard label="Engagement score" value="87 / 100" delta="+5.2" icon={<Activity className="size-5" />} tone="brand" sub="Composite of all signals" spark={<Sparkline values={[62, 68, 71, 74, 79, 83, 87]} color="#6854d9" width={140} height={32} />} />
+            <StatCard label="Avg. dwell time" value="3h 42m" delta="+18.0%" icon={<Users className="size-5" />} tone="info" sub="Time on floor per attendee" spark={<Sparkline values={[140, 162, 155, 188, 202, 214, 222]} color="#0ea5e9" width={140} height={32} />} />
             <StatCard label="Lead conversion" value="12.0%" delta="+2.1 pts" icon={<Target className="size-5" />} tone="success" sub="Badge scan → closed won" spark={<Sparkline values={[7, 8, 8, 9, 10, 11, 12]} color="#10b981" width={140} height={32} />} />
             <StatCard label="NPS" value="72" delta="+8" icon={<TrendingUp className="size-5" />} tone="warn" sub="Post-event survey, n=4,812" spark={<Sparkline values={[52, 58, 61, 64, 68, 70, 72]} color="#f97316" width={140} height={32} />} />
           </div>
@@ -124,15 +170,15 @@ export default function AdminAnalytics() {
               <div className="flex flex-col items-center p-5">
                 <RadialStack
                   items={[
-                    { label: "Engineering", value: 92, color: "#4f46e5" },
-                    { label: "Vision", value: 78, color: "#6366f1" },
-                    { label: "Security", value: 64, color: "#06b6d4" },
+                    { label: "Engineering", value: 92, color: "#5947c6" },
+                    { label: "Vision", value: 78, color: "#6854d9" },
+                    { label: "Security", value: 64, color: "#0ea5e9" },
                     { label: "Automation", value: 52, color: "#f97316" },
                   ]}
                   size={172}
                 />
                 <div className="mt-4 w-full space-y-1.5">
-                  {[["Engineering", 92, "#4f46e5"], ["Vision", 78, "#6366f1"], ["Security", 64, "#06b6d4"], ["Automation", 52, "#f97316"]].map(([l, v, c]) => (
+                  {[["Engineering", 92, "#5947c6"], ["Vision", 78, "#6854d9"], ["Security", 64, "#0ea5e9"], ["Automation", 52, "#f97316"]].map(([l, v, c]) => (
                     <div key={l as string} className="flex items-center gap-2 text-[11.5px]">
                       <span className="size-2 rounded-full" style={{ background: c as string }} />
                       <span className="text-slate-600">{l as string}</span>
@@ -157,15 +203,15 @@ export default function AdminAnalytics() {
           <div className="grid gap-6 xl:grid-cols-3">
             <Card className="xl:col-span-2">
               <CardHeader title="Daily check-ins" subtitle="Unique badge scans per day" />
-              <div className="p-5"><AreaChart data={ATTENDANCE_TREND} keys={["a"]} labels={["Check-ins"]} colors={["#6366f1"]} format={fmt} height={260} /></div>
+              <div className="p-5"><AreaChart data={ATTENDANCE_TREND} keys={["a"]} labels={["Check-ins"]} colors={["#6854d9"]} format={fmt} height={260} /></div>
             </Card>
             <Card>
               <CardHeader title="Acquisition channels" subtitle="Where registrations came from" />
               <div className="p-5">
                 <StackedBar
                   segments={[
-                    { label: "Email", value: 42, color: "#4f46e5" },
-                    { label: "Organic", value: 24, color: "#06b6d4" },
+                    { label: "Email", value: 42, color: "#5947c6" },
+                    { label: "Organic", value: 24, color: "#0ea5e9" },
                     { label: "Social", value: 18, color: "#f97316" },
                     { label: "Partner", value: 11, color: "#a855f7" },
                     { label: "Paid", value: 5, color: "#64748b" },
@@ -187,7 +233,7 @@ export default function AdminAnalytics() {
             <div className="p-5">
               <BarChart
                 horizontal
-                color="#6366f1"
+                color="#6854d9"
                 format={(n) => `${(n / 100).toFixed(1)}K`}
                 data={[["United Arab Emirates", 4200], ["India", 2800], ["United Kingdom", 2100], ["Germany", 1850], ["United States", 1620], ["Saudi Arabia", 1240], ["Singapore", 980], ["Japan", 760]].map(([l, v]) => ({ label: l as string, v: v as number }))}
               />
@@ -211,7 +257,7 @@ export default function AdminAnalytics() {
             </Card>
             <Card>
               <CardHeader title="Hourly distribution" subtitle="Share of daily traffic" />
-              <div className="p-5"><BarChart data={BOOTH_TRAFFIC_HOURS} color="#06b6d4" height={220} format={(n) => `${n}%`} /></div>
+              <div className="p-5"><BarChart data={BOOTH_TRAFFIC_HOURS} color="#0ea5e9" height={220} format={(n) => `${n}%`} /></div>
             </Card>
           </div>
           <Card>
@@ -285,6 +331,142 @@ export default function AdminAnalytics() {
           </div>
         </>
       )}
+
+      {tab === "events" && (
+        <>
+          <Card>
+            <CardHeader
+              title="Event-wise performance report"
+              subtitle="Side-by-side metrics for every edition you manage"
+              right={
+                <div className="flex flex-wrap gap-2">
+                  <Button size="xs" variant="secondary" onClick={() => exportApi.csv("event-report")}>CSV</Button>
+                  <Button size="xs" variant="secondary" onClick={() => exportApi.xlsx("event-report")}>XLSX</Button>
+                  <Button size="xs" onClick={() => exportApi.pdf("event-report")}>PDF</Button>
+                </div>
+              }
+            />
+            <Table>
+              <thead>
+                <tr>
+                  <Th>Expo</Th><Th>Dates</Th><Th className="text-right">Attendees</Th><Th className="text-right">Exhibitors</Th>
+                  <Th>Booths</Th><Th className="text-right">Fill rate</Th><Th className="text-right">Avg. rating</Th><Th>Trend</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {EXPOS.map((e) => {
+                  const pct = Math.round((e.boothsSold / e.boothsTotal) * 100);
+                  return (
+                    <tr key={e.id} className="transition hover:bg-slate-50/60">
+                      <Td>
+                        <div className="flex items-center gap-3">
+                          <img src={e.cover} alt="" className="size-9 shrink-0 rounded-lg object-cover" />
+                          <div className="min-w-0">
+                            <p className="truncate font-semibold text-slate-900">{e.title}</p>
+                            <p className="text-[11.5px] text-slate-500">{e.city}</p>
+                          </div>
+                        </div>
+                      </Td>
+                      <Td className="whitespace-nowrap text-slate-600">
+                        {new Date(e.startDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })} – {new Date(e.endDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                      </Td>
+                      <Td className="text-right font-semibold tabular-nums text-slate-900">{fmt(e.attendees)}</Td>
+                      <Td className="text-right tabular-nums text-slate-600">{e.exhibitors}</Td>
+                      <Td>
+                        <div className="flex items-center gap-2">
+                          <Progress value={pct} className="w-20" height={6} tone={pct > 90 ? "warn" : "brand"} />
+                          <span className="text-[11.5px] font-bold tabular-nums text-slate-600">{pct}%</span>
+                        </div>
+                      </Td>
+                      <Td className="text-right tabular-nums text-slate-600">{Math.round(60 + (e.rating - 4) * 40)}%</Td>
+                      <Td className="text-right font-semibold tabular-nums text-slate-800">{e.rating}</Td>
+                      <Td>
+                        <Sparkline values={[20, 28, 24, 36, 44, 52, 48, 62].map((v) => v * (e.attendees / 18000))} color="#5947c6" width={80} height={28} />
+                      </Td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </Table>
+          </Card>
+
+          <div className="grid gap-6 lg:grid-cols-2">
+            <Card>
+              <CardHeader title="Attendees by event" subtitle="Registered attendance per edition" />
+              <div className="p-5">
+                <BarChart horizontal color="#5947c6" format={fmt} data={EXPOS.map((e) => ({ label: e.title.length > 24 ? e.title.slice(0, 24) + "…" : e.title, v: e.attendees }))} />
+              </div>
+            </Card>
+            <Card>
+              <CardHeader title="Revenue by event" subtitle="Booth sales, thousands USD" />
+              <div className="p-5">
+                <BarChart horizontal color="#10b981" format={(n) => money(n * 8400)} data={EXPOS.map((e) => ({ label: e.title.length > 24 ? e.title.slice(0, 24) + "…" : e.title, v: e.boothsSold }))} />
+              </div>
+            </Card>
+          </div>
+
+          <Card>
+            <CardHeader title="Engagement report" subtitle="Attendee engagement score by event" />
+            <div className="grid gap-4 p-5 sm:grid-cols-2 lg:grid-cols-4">
+              {EXPOS.slice(0, 8).map((e) => {
+                const score = Math.round(58 + ((e.rating - 4) * 22) + (e.boothsSold / e.boothsTotal) * 18);
+                return (
+                  <div key={e.id} className="rounded-2xl border border-slate-200 p-4">
+                    <p className="truncate text-[12.5px] font-bold text-slate-900">{e.title}</p>
+                    <p className="mt-0.5 text-[11px] text-slate-500">{e.city}</p>
+                    <div className="mt-3 flex items-end justify-between gap-2">
+                      <p className="font-display text-[24px] font-extrabold leading-none text-slate-900">{score}</p>
+                      <span className="text-[10.5px] font-bold uppercase tracking-wide text-slate-400">/ 100</span>
+                    </div>
+                    <div className="mt-2"><Progress value={score} tone={score > 85 ? "success" : score > 70 ? "brand" : "warn"} /></div>
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+        </>
+      )}
+
+      <Modal
+        open={schedule}
+        onClose={() => setSchedule(false)}
+        title="Custom date range"
+        subtitle="Filter every chart and table in this dashboard"
+        size="md"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setSchedule(false)}>Cancel</Button>
+            <Button onClick={() => { setRange("custom"); setSchedule(false); toast({ title: "Date range applied", body: `${custom.from} → ${custom.to}`, tone: "success" }); }}>
+              Apply range
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="From" required><Input type="date" value={custom.from} onChange={(e) => setCustom({ ...custom, from: e.target.value })} /></Field>
+            <Field label="To" required><Input type="date" value={custom.to} onChange={(e) => setCustom({ ...custom, to: e.target.value })} /></Field>
+          </div>
+          <div>
+            <p className="mb-2 text-[12.5px] font-semibold text-slate-700">Quick ranges</p>
+            <div className="flex flex-wrap gap-2">
+              {[["Yesterday", "24h"], ["Last 7 days", "7d"], ["Last 30 days", "30d"], ["Year to date", "ytd"], ["All time", "all"]].map(([l, v]) => (
+                <button
+                  key={l}
+                  onClick={() => { setRange(v); setSchedule(false); toast({ title: `Applied: ${l}`, tone: "success" }); }}
+                  className="rounded-xl border border-slate-200 px-3 py-2 text-[12.5px] font-semibold text-slate-600 transition hover:border-brand-400 hover:bg-brand-50 hover:text-brand-700"
+                >
+                  {l}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex items-start gap-2.5 rounded-xl bg-brand-50 p-3.5 text-[12px] leading-relaxed text-brand-900">
+            <CalendarRange className="mt-0.5 size-4 shrink-0" />
+            Reports cover the selected range across all charts, tables and exports. Scheduled digests use the same range.
+          </div>
+        </div>
+      </Modal>
 
       {tab === "reports" && (
         <>

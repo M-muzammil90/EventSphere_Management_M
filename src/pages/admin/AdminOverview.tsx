@@ -14,8 +14,9 @@ import {
   REGISTRATION_SPLIT,
   SESSION_POPULARITY,
 } from "@/lib/data";
-import { Badge, Button, Card, CardHeader, Modal, Progress, Reveal, Tabs } from "@/components/ui";
+import { Badge, Button, Card, CardHeader, Progress, Reveal, Tabs } from "@/components/ui";
 import { StatCard, ExhibitorLogo } from "@/components/shared";
+import { ApiStatus } from "@/components/ApiStatus";
 import { AreaChart, BarChart, Donut, Funnel, Gauge, Heatmap, LiveChart, Sparkline } from "@/components/charts";
 import { fmt, money, useStore } from "@/lib/store";
 import { cn } from "@/utils/cn";
@@ -35,24 +36,30 @@ import {
   Zap,
 } from "lucide-react";
 
+import { ExpoCreateModal } from "./AdminExpos";
+
 export default function AdminOverview() {
-  const { toast } = useStore();
+  const { toast, user } = useStore();
   const [range, setRange] = useState("7d");
   const [newExpo, setNewExpo] = useState(false);
 
   return (
     <div className="space-y-6">
-      {/* page head */}
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h2 className="font-display text-[24px] font-bold tracking-[-0.02em] text-slate-900">
-            Good afternoon, Sarah 👋
+      {/* page head — quiet breadcrumb, strong title, contextual actions */}
+      <div className="flex flex-wrap items-end justify-between gap-4 border-b border-slate-200 pb-5">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="text-[10.5px] font-bold uppercase tracking-[.12em] text-slate-400">Dashboard / Overview</p>
+            <ApiStatus compact />
+          </div>
+          <h2 className="mt-2.5 font-display text-[26px] font-bold tracking-[-0.035em] text-slate-900">
+            Good afternoon, {user?.name?.split(" ")[0] ?? "Sarah"}
           </h2>
-          <p className="mt-1.5 text-[13.5px] text-slate-500">
-            Industrial Innovate Fair is live in Munich. 3 exhibitor applications are waiting on your review.
+          <p className="mt-1.5 max-w-2xl text-[13px] leading-relaxed text-slate-500">
+            Industrial Innovate Fair is live in Munich. Three exhibitor applications need your review.
           </p>
         </div>
-        <div className="flex flex-wrap gap-2.5">
+        <div className="flex flex-wrap items-center gap-2.5">
           <Tabs
             size="sm"
             active={range}
@@ -91,7 +98,7 @@ export default function AdminOverview() {
           sub="68% attendee · 19% exhibitor"
           icon={<Users className="size-5" />}
           tone="brand"
-          spark={<Sparkline values={[4200, 6800, 9200, 8100, 10400, 7600, 5200]} color="#6366f1" width={140} height={34} />}
+          spark={<Sparkline values={[4200, 6800, 9200, 8100, 10400, 7600, 5200]} color="#6854d9" width={140} height={34} />}
         />
         <StatCard
           label="Booths sold"
@@ -100,7 +107,7 @@ export default function AdminOverview() {
           sub="93% inventory utilisation"
           icon={<MapPin className="size-5" />}
           tone="info"
-          spark={<Sparkline values={[40, 44, 43, 52, 58, 61, 63]} color="#06b6d4" width={140} height={34} />}
+          spark={<Sparkline values={[40, 44, 43, 52, 58, 61, 63]} color="#0ea5e9" width={140} height={34} />}
         />
         <StatCard
           label="Sessions scheduled"
@@ -151,7 +158,7 @@ export default function AdminOverview() {
             right={<Badge tone="success">+31% YoY</Badge>}
           />
           <div className="p-5">
-            <BarChart data={MONTHLY_REVENUE} color="#6366f1" height={210} showValues format={(n) => `$${n}k`} />
+            <BarChart data={MONTHLY_REVENUE} color="#6854d9" height={210} showValues format={(n) => `$${n}k`} />
           </div>
         </Card>
 
@@ -307,7 +314,7 @@ export default function AdminOverview() {
         <Card>
           <CardHeader title="Traffic by hour" subtitle="Yesterday, all zones" />
           <div className="p-5">
-            <BarChart data={BOOTH_TRAFFIC_HOURS} color="#06b6d4" height={180} format={(n) => `${n}%`} />
+            <BarChart data={BOOTH_TRAFFIC_HOURS} color="#0ea5e9" height={180} format={(n) => `${n}%`} />
           </div>
         </Card>
       </div>
@@ -391,51 +398,7 @@ export default function AdminOverview() {
         </div>
       </Reveal>
 
-      <Modal
-        open={newExpo}
-        onClose={() => setNewExpo(false)}
-        title="Create a new expo"
-        subtitle="Step 1 of 3 — basics"
-        size="lg"
-        footer={
-          <>
-            <Button variant="ghost" onClick={() => setNewExpo(false)}>Cancel</Button>
-            <Button onClick={() => { setNewExpo(false); toast({ title: "Draft expo created", body: "Continue setup in Expo Management.", tone: "success" }); }}>
-              Save & continue
-            </Button>
-          </>
-        }
-      >
-        <div className="grid gap-4 sm:grid-cols-2">
-          {[
-            ["Expo title", "e.g. Global Tech Summit 2026"],
-            ["Category", "Technology"],
-            ["City", "Dubai, UAE"],
-            ["Venue / hall", "Dubai World Trade Centre — Hall 4"],
-            ["Start date", "2026-03-18"],
-            ["End date", "2026-03-21"],
-          ].map(([l, ph]) => (
-            <label key={l} className="block">
-              <span className="mb-1.5 block text-[12.5px] font-semibold text-slate-700">{l}</span>
-              <input placeholder={ph} className="h-11 w-full rounded-xl border border-slate-200 px-3.5 text-[14px] outline-none transition focus:border-brand-400 focus:ring-4 focus:ring-brand-500/12" />
-            </label>
-          ))}
-          <label className="block sm:col-span-2">
-            <span className="mb-1.5 block text-[12.5px] font-semibold text-slate-700">Description</span>
-            <textarea placeholder="What makes this expo unmissable?" className="min-h-[92px] w-full rounded-xl border border-slate-200 px-3.5 py-3 text-[14px] outline-none transition focus:border-brand-400 focus:ring-4 focus:ring-brand-500/12" />
-          </label>
-          <div className="sm:col-span-2">
-            <span className="mb-2 block text-[12.5px] font-semibold text-slate-700">Theme</span>
-            <div className="flex flex-wrap gap-2">
-              {["Intelligence at Scale", "Precision Care", "Factory of the Future", "Electric Everything", "Custom…"].map((t, i) => (
-                <span key={t} className={cn("cursor-pointer rounded-xl border px-3 py-2 text-[12.5px] font-semibold transition", i === 0 ? "border-brand-500 bg-brand-50 text-brand-700" : "border-slate-200 text-slate-600 hover:border-slate-300")}>
-                  {t}
-                </span>
-              ))}
-            </div>
-          </div>
-        </div>
-      </Modal>
+      <ExpoCreateModal open={newExpo} onClose={() => setNewExpo(false)} />
     </div>
   );
 }

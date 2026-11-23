@@ -1,87 +1,132 @@
-import { useMemo, useState } from "react";
-import { EXPOS } from "@/lib/data";
-import { Badge, Button, Card, EmptyState, Reveal, SectionHeading, Select, Tabs } from "@/components/ui";
-import { ExpoCard } from "@/components/shared";
-import { Shell, SearchPill } from "@/components/SiteLayout";
-import { cn } from "@/utils/cn";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { CalendarDays, LayoutGrid, List, MapPin, RotateCcw, SearchX, SlidersHorizontal, Star } from "lucide-react";
+import { CalendarDays, LayoutGrid, List, MapPin, RotateCcw, Search, SearchX, SlidersHorizontal, Star, X } from "lucide-react";
+import { EXPOS, type Expo } from "@/lib/data";
+import { Badge, Button, Card, EmptyState, Select, Tabs } from "@/components/ui";
+import { Pagination } from "@/components/kit";
+import { ExpoCard } from "@/components/shared";
+import { Shell } from "@/components/SiteLayout";
+import { cn } from "@/utils/cn";
+import { fetchLiveExpos } from "@/lib/liveApi";
 
-const CATEGORIES = ["All", ...Array.from(new Set(EXPOS.map((e) => e.category)))];
-const STATUSES = ["All", "Live", "Upcoming", "Completed"] as const;
+const PER_PAGE = 6;
+const STATUSES = ["All", "Live", "Upcoming", "Completed"];
+const FALLBACK_COVER =
+  "https://images.pexels.com/photos/38041486/pexels-photo-38041486.jpeg?auto=compress&cs=tinysrgb&fit=crop&h=627&w=1200";
+
+type SortKey = "date" | "attendees" | "price" | "rating";
 
 export default function Expos() {
+  const [expos, setExpos] = useState<Expo[]>(EXPOS);
   const [q, setQ] = useState("");
   const [cat, setCat] = useState("All");
-  const [status, setStatus] = useState<string>("All");
+  const [status, setStatus] = useState("All");
   const [city, setCity] = useState("All");
-  const [sort, setSort] = useState("date");
+  const [sort, setSort] = useState<SortKey>("date");
   const [view, setView] = useState<"grid" | "list">("grid");
-  const [maxPrice, setMaxPrice] = useState(250);
+  const [priceLimit, setPriceLimit] = useState<number | null>(null); // null = no limit
   const [showFilters, setShowFilters] = useState(false);
+  const [page, setPage] = useState(1);
 
-  const cities = ["All", ...Array.from(new Set(EXPOS.map((e) => e.city)))];
+  // live data
+  useEffect(() => {
+    let alive = true;
+    fetchLiveExpos().then((data) => {
+      if (alive && data && data.length > 0) setExpos(data);
+    });
+    return () => { alive = false; };
+  }, []);
+
+  // options come from the data itself
+  const categories = useMemo(() => ["All", ...new Set(expos.map((e) => e.category))], [expos]);
+  const cities = useMemo(() => ["All", ...new Set(expos.map((e) => e.city))], [expos]);
+  const priceCap = useMemo(
+    () => Math.max(10, Math.ceil(Math.max(0, ...expos.map((e) => e.price)) / 10) * 10),
+    [expos]
+  );
+  const maxPrice = priceLimit ?? priceCap;
+
+  const statusCounts = useMemo(() => {
+    const counts: Record<string, number> = { All: expos.length };
+    for (const e of expos) counts[e.status] = (counts[e.status] ?? 0) + 1;
+    return counts;
+  }, [expos]);
 
   const results = useMemo(() => {
-    let r = EXPOS.filter((e) => {
-      const hay = `${e.title} ${e.category} ${e.industry} ${e.city} ${e.venue} ${e.tags.join(" ")} ${e.theme}`.toLowerCase();
+    const needle = q.trim().toLowerCase();
+    const filtered = expos.filter((e) => {
+      const hay = `${e.title} ${e.category} ${e.industry} ${e.city} ${e.venue} ${e.theme}`.toLowerCase();
       return (
-        (!q || hay.includes(q.toLowerCase())) &&
+        (!needle || hay.includes(needle)) &&
         (cat === "All" || e.category === cat) &&
         (status === "All" || e.status === status) &&
         (city === "All" || e.city === city) &&
         e.price <= maxPrice
       );
     });
-    r = [...r].sort((a, b) =>
-      sort === "date" ? +new Date(a.startDate) - +new Date(b.startDate)
-      : sort === "attendees" ? b.attendees - a.attendees
-      : sort === "price" ? a.price - b.price
-      : b.rating - a.rating
-    );
-    return r;
-  }, [q, cat, status, city, sort, maxPrice]);
+    return filtered.sort((a, b) => {
+      switch (sort) {
+        case "attendees": return b.attendees - a.attendees;
+        case "price": return a.price - b.price;
+        case "rating": return b.rating - a.rating;
+        default: return +new Date(a.startDate) - +new Date(b.startDate);
+      }
+    });
+  }, [expos, q, cat, status, city, sort, maxPrice]);
 
+  // back to page 1 whenever the result set changes
+  useEffect(() => setPage(1), [q, cat, status, city, sort, priceLimit]);
+
+  const pages = Math.max(1, Math.ceil(results.length / PER_PAGE));
+  const safePage = Math.min(page, pages);
+  const slice = results.slice((safePage - 1) * PER_PAGE, safePage * PER_PAGE);
+
+  const hasFilters = !!q || cat !== "All" || city !== "All" || status !== "All" || priceLimit !== null;
   const reset = () => {
-    setQ(""); setCat("All"); setStatus("All"); setCity("All"); setSort("date"); setMaxPrice(250);
+    setQ(""); setCat("All"); setStatus("All"); setCity("All"); setSort("date"); setPriceLimit(null);
   };
 
   return (
     <Shell>
-      {/* header */}
-      <section className="relative overflow-hidden border-b border-slate-100 bg-gradient-to-b from-slate-50 to-white pb-10 pt-12 sm:pt-16">
-        <div className="pointer-events-none absolute inset-0 grid-noise opacity-60" />
-        <div className="pointer-events-none absolute -right-24 -top-24 size-[380px] rounded-full bg-brand-100/60 blur-[100px]" />
-        <div className="relative mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <Reveal>
-            <SectionHeading
-              eyebrow="Discover"
-              title="Find your next expo"
-              body="Browse every edition managed on EventSphere — filter by industry, city, date or price and reserve your place in minutes."
+      {/* header + search */}
+      <section className="border-b border-slate-200 bg-slate-50 py-12 sm:py-16">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <h1 className="font-display text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">
+            Find your next expo
+          </h1>
+          <p className="mt-2 max-w-xl text-[15px] text-slate-600">
+            Filter by industry, city, date or price, then reserve your place.
+          </p>
+
+          <label className="relative mt-6 block max-w-xl">
+            <span className="sr-only">Search expos</span>
+            <Search className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search expos, industries, cities"
+              className="w-full rounded-xl border border-slate-200 bg-white py-3 pl-11 pr-10 text-[14px] text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-brand-400 focus:ring-4 focus:ring-brand-100"
             />
-          </Reveal>
-          <Reveal delay={100}>
-            <div className="mt-8 max-w-2xl">
-              <div className="relative">
-                <SearchPill />
-                <input
-                  value={q}
-                  onChange={(e) => setQ(e.target.value)}
-                  placeholder="Search expos, industries, cities…"
-                  className="absolute inset-0 w-full rounded-2xl border border-transparent bg-transparent px-4 py-3.5 text-[14px] text-slate-900 outline-none placeholder:text-transparent focus:border-brand-300"
-                />
-              </div>
-            </div>
-          </Reveal>
+            {q && (
+              <button
+                type="button"
+                onClick={() => setQ("")}
+                aria-label="Clear search"
+                className="absolute right-3 top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded-full text-slate-400 hover:text-slate-700"
+              >
+                <X className="size-4" />
+              </button>
+            )}
+          </label>
         </div>
       </section>
 
       {/* toolbar */}
-      <section className="sticky top-16.5 z-30 border-b border-slate-200 bg-white/90 backdrop-blur-xl">
+      <section className="sticky top-16.5 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
         <div className="mx-auto max-w-7xl px-4 py-3 sm:px-6 lg:px-8">
           <div className="flex flex-wrap items-center gap-2.5">
             <Tabs
-              tabs={STATUSES.map((s) => ({ id: s, label: s === "All" ? "All" : s, count: s === "All" ? EXPOS.length : EXPOS.filter((e) => e.status === s).length }))}
+              tabs={STATUSES.map((s) => ({ id: s, label: s, count: statusCounts[s] ?? 0 }))}
               active={status}
               onChange={setStatus}
             />
@@ -95,14 +140,18 @@ export default function Expos() {
                 Filters
               </Button>
               <div className="hidden rounded-xl border border-slate-200 p-0.5 sm:flex">
-                {([["grid", LayoutGrid], ["list", List]] as const).map(([v, Ic]) => (
+                {([["grid", LayoutGrid], ["list", List]] as const).map(([v, Icon]) => (
                   <button
                     key={v}
                     onClick={() => setView(v)}
                     aria-label={`${v} view`}
-                    className={cn("grid size-8 place-items-center rounded-lg transition", view === v ? "bg-slate-900 text-white" : "text-slate-400 hover:text-slate-700")}
+                    aria-pressed={view === v}
+                    className={cn(
+                      "grid size-8 place-items-center rounded-lg transition",
+                      view === v ? "bg-slate-900 text-white" : "text-slate-400 hover:text-slate-700"
+                    )}
                   >
-                    <Ic className="size-4" />
+                    <Icon className="size-4" />
                   </button>
                 ))}
               </div>
@@ -110,41 +159,44 @@ export default function Expos() {
           </div>
 
           {showFilters && (
-            <div className="mt-3 grid gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-4 sm:grid-cols-2 lg:grid-cols-5">
+            <div className="mt-3 grid gap-4 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:grid-cols-2 lg:grid-cols-4">
               <label className="block">
-                <span className="mb-1.5 block text-[11.5px] font-bold text-slate-600">Category</span>
+                <span className="mb-1.5 block text-[12px] font-semibold text-slate-600">Category</span>
                 <Select value={cat} onChange={(e) => setCat(e.target.value)}>
-                  {CATEGORIES.map((c) => <option key={c}>{c}</option>)}
+                  {categories.map((c) => <option key={c}>{c}</option>)}
                 </Select>
               </label>
               <label className="block">
-                <span className="mb-1.5 block text-[11.5px] font-bold text-slate-600">City</span>
+                <span className="mb-1.5 block text-[12px] font-semibold text-slate-600">City</span>
                 <Select value={city} onChange={(e) => setCity(e.target.value)}>
                   {cities.map((c) => <option key={c}>{c}</option>)}
                 </Select>
               </label>
               <label className="block">
-                <span className="mb-1.5 block text-[11.5px] font-bold text-slate-600">Sort by</span>
-                <Select value={sort} onChange={(e) => setSort(e.target.value)}>
+                <span className="mb-1.5 block text-[12px] font-semibold text-slate-600">Sort by</span>
+                <Select value={sort} onChange={(e) => setSort(e.target.value as SortKey)}>
                   <option value="date">Start date</option>
                   <option value="attendees">Most attendees</option>
                   <option value="price">Price: low to high</option>
                   <option value="rating">Highest rated</option>
                 </Select>
               </label>
-              <label className="block sm:col-span-2 lg:col-span-2">
-                <span className="mb-1.5 flex items-baseline justify-between text-[11.5px] font-bold text-slate-600">
+              <label className="block">
+                <span className="mb-1.5 flex items-baseline justify-between text-[12px] font-semibold text-slate-600">
                   Max ticket price
-                  <span className="font-display text-[13px] text-brand-700">${maxPrice}</span>
+                  <span className="text-[13px] font-bold text-brand-700">${maxPrice}</span>
                 </span>
                 <input
                   type="range"
-                  min={50}
-                  max={250}
+                  min={0}
+                  max={priceCap}
                   step={10}
                   value={maxPrice}
-                  onChange={(e) => setMaxPrice(+e.target.value)}
-                  className="mt-3.5 h-1.5 w-full cursor-pointer appearance-none rounded-full bg-slate-200 accent-brand-600"
+                  onChange={(e) => {
+                    const v = +e.target.value;
+                    setPriceLimit(v >= priceCap ? null : v);
+                  }}
+                  className="mt-3 h-1.5 w-full cursor-pointer appearance-none rounded-full bg-slate-200 accent-brand-600"
                 />
               </label>
             </div>
@@ -157,18 +209,22 @@ export default function Expos() {
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-[13.5px] text-slate-500">
-              Showing <b className="text-slate-900">{results.length}</b> of {EXPOS.length} expos
+              Showing <b className="text-slate-900">{results.length}</b> of {expos.length} expos
             </p>
-            <div className="flex flex-wrap gap-1.5">
-              {cat !== "All" && <FilterChip label={cat} onClear={() => setCat("All")} />}
-              {city !== "All" && <FilterChip label={city} onClear={() => setCity("All")} />}
-              {status !== "All" && <FilterChip label={status} onClear={() => setStatus("All")} />}
-              {(cat !== "All" || city !== "All" || status !== "All") && (
-                <button onClick={reset} className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11.5px] font-bold text-slate-500 transition hover:text-rose-600">
+            {hasFilters && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                {cat !== "All" && <FilterChip label={cat} onClear={() => setCat("All")} />}
+                {city !== "All" && <FilterChip label={city} onClear={() => setCity("All")} />}
+                {status !== "All" && <FilterChip label={status} onClear={() => setStatus("All")} />}
+                {priceLimit !== null && <FilterChip label={`Up to $${priceLimit}`} onClear={() => setPriceLimit(null)} />}
+                <button
+                  onClick={reset}
+                  className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12px] font-semibold text-slate-500 transition hover:text-rose-600"
+                >
                   <RotateCcw className="size-3" /> Reset all
                 </button>
-              )}
-            </div>
+              </div>
+            )}
           </div>
 
           {results.length === 0 ? (
@@ -176,54 +232,38 @@ export default function Expos() {
               <EmptyState
                 icon={<SearchX className="size-6" />}
                 title="No expos match your filters"
-                body="Try widening your search — clear a filter or two, or browse a different category."
-                action={<Button variant="secondary" icon={<RotateCcw className="size-4" />} onClick={reset}>Reset filters</Button>}
+                body="Clear a filter or try a different search."
+                action={
+                  <Button variant="secondary" icon={<RotateCcw className="size-4" />} onClick={reset}>
+                    Reset filters
+                  </Button>
+                }
               />
             </Card>
-          ) : view === "grid" ? (
-            <div className="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-              {results.map((e, i) => (
-                <Reveal key={e.id} delay={Math.min(i * 60, 300)}>
-                  <ExpoCard expo={e} />
-                </Reveal>
-              ))}
-            </div>
           ) : (
-            <div className="mt-6 space-y-3">
-              {results.map((e) => (
-                <Card key={e.id} hover className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center">
-                  <img src={e.cover} alt="" loading="lazy" className="h-28 w-full shrink-0 rounded-xl object-cover sm:w-44" />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge tone="brand">{e.category}</Badge>
-                      {e.status === "Live" && (
-                        <Badge tone="danger" className="bg-rose-500 text-white ring-rose-400">
-                          <span className="size-1.5 animate-pulse rounded-full bg-white" /> LIVE
-                        </Badge>
-                      )}
-                      <span className="inline-flex items-center gap-1 text-[11.5px] font-bold text-amber-600">
-                        <Star className="size-3.5 fill-amber-400 text-amber-400" /> {e.rating}
-                      </span>
-                    </div>
-                    <h3 className="mt-2 font-display text-[16px] font-bold tracking-tight text-slate-900">{e.title}</h3>
-                    <p className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-slate-500">
-                      <span className="inline-flex items-center gap-1"><MapPin className="size-3.5" /> {e.venue}</span>
-                      <span className="inline-flex items-center gap-1"><CalendarDays className="size-3.5 text-brand-500" /> {e.startDate} → {e.endDate}</span>
-                    </p>
-                    <p className="mt-2 line-clamp-1 text-[12.5px] text-slate-600">{e.description}</p>
-                  </div>
-                  <div className="flex shrink-0 flex-col items-stretch gap-2 sm:w-40">
-                    <div className="text-center">
-                      <p className="font-display text-[20px] font-bold text-slate-900">${e.price}</p>
-                      <p className="text-[11px] text-slate-400">per day pass</p>
-                    </div>
-                    <Link to={`/expos/${e.slug}`}>
-                      <Button full size="sm">View expo</Button>
-                    </Link>
-                  </div>
+            <>
+              {view === "grid" ? (
+                <div className="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                  {slice.map((e) => <ExpoCard key={e.id} expo={e} />)}
+                </div>
+              ) : (
+                <div className="mt-6 space-y-3">
+                  {slice.map((e) => <ExpoRow key={e.id} expo={e} />)}
+                </div>
+              )}
+
+              {pages > 1 && (
+                <Card className="mt-6 p-4">
+                  <Pagination
+                    page={safePage}
+                    pages={pages}
+                    onChange={setPage}
+                    total={results.length}
+                    perPage={PER_PAGE}
+                  />
                 </Card>
-              ))}
-            </div>
+              )}
+            </>
           )}
         </div>
       </section>
@@ -231,9 +271,56 @@ export default function Expos() {
   );
 }
 
-const FilterChip = ({ label, onClear }: { label: string; onClear: () => void }) => (
-  <span className="inline-flex items-center gap-1.5 rounded-lg bg-brand-50 px-2.5 py-1 text-[11.5px] font-bold text-brand-700 ring-1 ring-brand-100">
-    {label}
-    <button onClick={onClear} aria-label={`Clear ${label}`} className="text-brand-400 hover:text-brand-700">×</button>
-  </span>
-);
+function ExpoRow({ expo: e }: { expo: Expo }) {
+  return (
+    <Card hover className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center">
+      <img
+        src={e.cover}
+        alt=""
+        loading="lazy"
+        className="h-28 w-full shrink-0 rounded-lg object-cover sm:w-44"
+        onError={(ev) => {
+          ev.currentTarget.onerror = null; // avoid an endless error loop
+          ev.currentTarget.src = FALLBACK_COVER;
+        }}
+      />
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge tone="brand">{e.category}</Badge>
+          {e.status === "Live" && <Badge tone="danger">Live now</Badge>}
+          <span className="inline-flex items-center gap-1 text-[12px] font-semibold text-amber-600">
+            <Star className="size-3.5 fill-amber-400 text-amber-400" /> {e.rating}
+          </span>
+        </div>
+        <h3 className="mt-2 font-display text-[16px] font-bold tracking-tight text-slate-900">{e.title}</h3>
+        <p className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-slate-500">
+          <span className="inline-flex items-center gap-1"><MapPin className="size-3.5" /> {e.venue}</span>
+          <span className="inline-flex items-center gap-1">
+            <CalendarDays className="size-3.5" /> {e.startDate} to {e.endDate}
+          </span>
+        </p>
+        <p className="mt-2 line-clamp-1 text-[12.5px] text-slate-600">{e.description}</p>
+      </div>
+      <div className="flex shrink-0 flex-col items-stretch gap-2 sm:w-40">
+        <div className="text-center">
+          <p className="font-display text-[20px] font-bold text-slate-900">${e.price}</p>
+          <p className="text-[11px] text-slate-400">per day pass</p>
+        </div>
+        <Link to={`/expos/${e.slug}`}>
+          <Button full size="sm">View expo</Button>
+        </Link>
+      </div>
+    </Card>
+  );
+}
+
+function FilterChip({ label, onClear }: { label: string; onClear: () => void }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-lg bg-brand-50 px-2.5 py-1 text-[12px] font-semibold text-brand-700 ring-1 ring-brand-100">
+      {label}
+      <button onClick={onClear} aria-label={`Clear ${label}`} className="text-brand-400 hover:text-brand-700">
+        <X className="size-3" />
+      </button>
+    </span>
+  );
+}

@@ -1,26 +1,374 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { EXHIBITORS, MESSAGES, BOOTHS, SESSIONS } from "@/lib/data";
-import { Avatar, Badge, Button, Card, CardHeader, Field, Input, Modal, Progress, Reveal, Select, Tabs, Textarea, Toggle } from "@/components/ui";
+import { EXHIBITORS, BOOTHS, SESSIONS } from "@/lib/data";
+import { Avatar, Badge, Button, Card, CardHeader, Field, Input, Modal, Progress, Reveal, Select, Textarea, Toggle } from "@/components/ui";
 import { FloorPlan, StatCard, ExhibitorLogo, SessionCard } from "@/components/shared";
+import RealtimeChatView from "@/components/chat/RealtimeChatView";
+import { PortalLayout, type PortalNavItem } from "@/components/PortalLayout";
 import { AreaChart, BarChart, Gauge, Sparkline } from "@/components/charts";
 import { fmt, money, useStore } from "@/lib/store";
 import { cn } from "@/utils/cn";
 import {
-  Activity, Award, Bell, Building2, CalendarClock, Check, Download, FileCheck2, Mail, MapPin, MessageSquare,
-  Pencil, ScanLine, Send, Sparkles, Star, Target, TrendingUp, Upload, UserPlus, Users,
+  fetchMyExhibitorProfile, updateMyExhibitorProfile, fetchLiveExpos, fetchMyApplications, applyForLiveExpo,
+  fetchLiveBooths, fetchMyDocuments, uploadMyDocument, deleteMyDocument, uploadMyLogo,
+  reserveLiveBooth, releaseLiveBooth,
+} from "@/lib/liveApi";
+import { type Expo, type Booth } from "@/lib/data";
+import {
+  Activity, Award, Building2, CalendarClock, Check, Clock,
+  Download, FileCheck2, FileText, LayoutDashboard, Mail, MapPin,
+  MessageSquare, Pencil, Plus, RefreshCw, Save, ScanLine, Settings, Sparkles, Star,
+  Target, Trash2, TrendingUp, Upload, UserPlus, Users, X,
 } from "lucide-react";
 
 const ME = EXHIBITORS[0];
 
 export default function ExhibitorPortal() {
-  const { user, toast } = useStore();
+  const { toast } = useStore();
   const [tab, setTab] = useState("overview");
   const [booth, setBooth] = useState<string | null>(null);
   const [confirm, setConfirm] = useState(false);
   const [editProfile, setEditProfile] = useState(false);
   const [staffOpen, setStaffOpen] = useState(false);
   const [notify, setNotify] = useState({ alloc: true, neighbour: true, leads: true, digest: false });
+
+  // MongoDB Live Profile state
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [companyName, setCompanyName] = useState(ME.company);
+  const [repName, setRepName] = useState(ME.rep);
+  const [contactEmail, setContactEmail] = useState("amara@nexoracloud.com");
+  const [category, setCategory] = useState(ME.category);
+  const [country, setCountry] = useState(ME.country);
+  const [description, setDescription] = useState(ME.description);
+  const [website, setWebsite] = useState("https://nexoracloud.com");
+  const [businessPhone, setBusinessPhone] = useState("+1 (555) 234-5678");
+  const [companyAddress, setCompanyAddress] = useState("500 Tech Blvd, Suite 400, San Francisco, CA");
+  const [registrationNo, setRegistrationNo] = useState("US-DE-8821940");
+  const [foundedYear, setFoundedYear] = useState<number | string>(2021);
+  const [logoUrl, setLogoUrl] = useState<string>("");
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [productsList, setProductsList] = useState<Array<{ name: string; description: string; price: string }>>([
+    { name: "Cloud Infrastructure Core", description: "Multi-region hybrid cloud deployment framework.", price: "From $2,400 / mo" },
+    { name: "Enterprise Observability", description: "Real-time telemetry and distributed tracing suite.", price: "From $1,200 / mo" },
+  ]);
+  const [newProdName, setNewProdName] = useState("");
+  const [newProdDesc, setNewProdDesc] = useState("");
+  const [newProdPrice, setNewProdPrice] = useState("");
+  const [showAddProduct, setShowAddProduct] = useState(false);
+  const [visibilitySettings, setVisibilitySettings] = useState({
+    showBoothOnPlan: true,
+    allowAttendeeChat: true,
+    showEmailPublicly: false,
+  });
+
+  // MongoDB Live Expos & Applications state
+  const [liveExpos, setLiveExpos] = useState<Expo[]>([]);
+  const [myApps, setMyApps] = useState<any[]>([]);
+  const [applyExpo, setApplyExpo] = useState<Expo | null>(null);
+  const [applyForm, setApplyForm] = useState({
+    tier: "Silver",
+    requestedZone: "A",
+    requestedCategory: "Medium",
+    showcaseSummary: "",
+    boothQty: 1,
+  });
+  const [applying, setApplying] = useState(false);
+
+  // Dynamic Booth & Floor Plan state
+  const [selectedExpoId, setSelectedExpoId] = useState<string>("");
+  const [liveBooths, setLiveBooths] = useState<Booth[]>([]);
+  const [loadingBooths, setLoadingBooths] = useState(false);
+  const [reservingBooth, setReservingBooth] = useState(false);
+
+  // Compliance Documents state
+  const [myDocs, setMyDocs] = useState<any[]>([]);
+  const [loadingDocs, setLoadingDocs] = useState(false);
+  const [uploadingDoc, setUploadingDoc] = useState(false);
+  const [docTypeToUpload, setDocTypeToUpload] = useState("certificate_of_incorporation");
+
+  const loadExposAndApps = async () => {
+    try {
+      const [expos, apps] = await Promise.all([fetchLiveExpos(), fetchMyApplications()]);
+      const valid = expos.filter((e) => e.status !== "Draft");
+      const exposToUse = valid.length > 0 ? valid : expos;
+      setLiveExpos(exposToUse);
+      setMyApps(apps || []);
+      if (exposToUse.length > 0) {
+        setSelectedExpoId((prev) => {
+          if (prev && exposToUse.some((e) => e.id === prev)) return prev;
+          const approvedApp = (apps || []).find((a: any) => a.status === "approved");
+          const approvedExpoId = approvedApp?.expo?._id || approvedApp?.expo?.id || approvedApp?.expo;
+          if (approvedExpoId && exposToUse.some((e) => e.id === approvedExpoId)) return approvedExpoId;
+          return exposToUse[0].id;
+        });
+      }
+    } catch (e) {
+      console.warn("loadExposAndApps error:", e);
+    }
+  };
+
+  const handleReserveBooth = async (targetBoothId: string) => {
+    setReservingBooth(true);
+    try {
+      const target = liveBooths.find((b) => b.id === targetBoothId || (b as any)._id === targetBoothId);
+      const resId = (target as any)?._id || targetBoothId;
+      await reserveLiveBooth(resId, `Reserved via Exhibitor Portal for ${companyName}`);
+      toast({
+        title: `Booth ${targetBoothId} Reserved! ✓`,
+        body: "Your booth space has been reserved in MongoDB.",
+        tone: "success",
+      });
+      if (selectedExpoId) {
+        const fresh = await fetchLiveBooths(selectedExpoId);
+        setLiveBooths(fresh || []);
+      }
+      setBooth(targetBoothId);
+    } catch (err: any) {
+      toast({
+        title: "Reservation Failed",
+        body: err?.response?.data?.message || err?.message || "Could not reserve booth. Please ensure your profile is verified and application is approved.",
+        tone: "danger",
+      });
+    } finally {
+      setReservingBooth(false);
+    }
+  };
+
+  const handleReleaseBooth = async (targetBoothId: string) => {
+    setReservingBooth(true);
+    try {
+      const target = liveBooths.find((b) => b.id === targetBoothId || (b as any)._id === targetBoothId);
+      const resId = (target as any)?._id || targetBoothId;
+      await releaseLiveBooth(resId);
+      toast({
+        title: `Booth ${targetBoothId} Released`,
+        body: "The booth is now available again on the floor plan.",
+        tone: "info",
+      });
+      if (selectedExpoId) {
+        const fresh = await fetchLiveBooths(selectedExpoId);
+        setLiveBooths(fresh || []);
+      }
+      setBooth(null);
+    } catch (err: any) {
+      toast({
+        title: "Release Failed",
+        body: err?.response?.data?.message || err?.message || "Could not release booth.",
+        tone: "danger",
+      });
+    } finally {
+      setReservingBooth(false);
+    }
+  };
+
+  const loadDocuments = async () => {
+    setLoadingDocs(true);
+    try {
+      const docs = await fetchMyDocuments();
+      setMyDocs(docs || []);
+    } catch (e) {
+      console.warn("loadDocuments error:", e);
+    } finally {
+      setLoadingDocs(false);
+    }
+  };
+
+  useEffect(() => {
+    loadExposAndApps();
+    loadDocuments();
+  }, []);
+
+  useEffect(() => {
+    if (selectedExpoId) {
+      setLoadingBooths(true);
+      fetchLiveBooths(selectedExpoId)
+        .then((b) => setLiveBooths(b || []))
+        .catch(() => setLiveBooths([]))
+        .finally(() => setLoadingBooths(false));
+    }
+  }, [selectedExpoId]);
+
+  const handleApply = async () => {
+    if (!applyExpo) return;
+    setApplying(true);
+    try {
+      await applyForLiveExpo(applyExpo.id, applyForm);
+      toast({
+        title: "Application submitted! 🎉",
+        body: `Your application for ${applyExpo.title} was submitted to the organizer for approval.`,
+        tone: "success",
+      });
+      setApplyExpo(null);
+      await loadExposAndApps();
+    } catch (err: any) {
+      toast({
+        title: "Application failed",
+        body: err.message || "Could not submit application",
+        tone: "danger",
+      });
+    } finally {
+      setApplying(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchMyExhibitorProfile()
+      .then((data) => {
+        if (data?.profile) {
+          const p = data.profile;
+          if (p.company?.name) setCompanyName(p.company.name);
+          if (p.company?.description) setDescription(p.company.description);
+          if (p.company?.website) setWebsite(p.company.website);
+          if (p.company?.registrationNo) setRegistrationNo(p.company.registrationNo);
+          if (p.company?.foundedYear) setFoundedYear(p.company.foundedYear);
+          if (p.logo?.url) setLogoUrl(p.logo.url);
+          if (p.category) setCategory(p.category);
+          if (p.contact?.primaryName) setRepName(p.contact.primaryName);
+          if (p.contact?.email) setContactEmail(p.contact.email);
+          if (p.contact?.phone) setBusinessPhone(p.contact.phone);
+          if (p.contact?.country) setCountry(p.contact.country);
+          if (Array.isArray(p.products) && p.products.length > 0) {
+            setProductsList(p.products.map((x: any) => ({
+              name: x.name || "Product",
+              description: x.description || "",
+              price: x.price || "",
+            })));
+          }
+          if (p.visibility) {
+            setVisibilitySettings({
+              showBoothOnPlan: p.visibility.showBoothOnPlan ?? true,
+              allowAttendeeChat: p.visibility.allowAttendeeChat ?? true,
+              showEmailPublicly: p.visibility.showEmailPublicly ?? false,
+            });
+          }
+        }
+        if (data?.documents && Array.isArray(data.documents)) {
+          setMyDocs(data.documents);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleSaveProfile = async () => {
+    setProfileSaving(true);
+    try {
+      await updateMyExhibitorProfile({
+        company: {
+          name: companyName,
+          description,
+          website,
+          registrationNo,
+          foundedYear: Number(foundedYear) || undefined,
+        },
+        category: category as any,
+        contact: {
+          primaryName: repName,
+          email: contactEmail,
+          phone: businessPhone,
+          country,
+        },
+        visibility: visibilitySettings,
+        logo: logoUrl ? { url: logoUrl } : undefined,
+      });
+      setEditProfile(false);
+      toast({
+        title: "Company Profile saved to MongoDB ✓",
+        body: "All company details, logo, products, and contact information updated.",
+        tone: "success",
+      });
+    } catch (err: any) {
+      toast({
+        title: "Save failed",
+        body: err.message || "Could not save profile to server.",
+        tone: "danger",
+      });
+    } finally {
+      setProfileSaving(false);
+    }
+  };
+
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingLogo(true);
+    try {
+      const res = await uploadMyLogo(file);
+      const url = res?.data?.logo?.url;
+      if (url) {
+        const fullUrl = url.startsWith("/") ? `http://localhost:5000${url}` : url;
+        setLogoUrl(fullUrl);
+        toast({ title: "Logo Uploaded ✓", body: "Company logo updated in MongoDB.", tone: "success" });
+      } else {
+        toast({ title: "Logo saved", body: "Logo uploaded to local server.", tone: "success" });
+      }
+    } catch (err: any) {
+      toast({ title: "Logo upload failed", body: err.message, tone: "danger" });
+    } finally {
+      setUploadingLogo(false);
+    }
+  };
+
+  const handleUploadDocument = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingDoc(true);
+    try {
+      await uploadMyDocument(file, docTypeToUpload);
+      toast({
+        title: "Document Uploaded ✓",
+        body: `${file.name} submitted for compliance verification.`,
+        tone: "success",
+      });
+      await loadDocuments();
+    } catch (err: any) {
+      toast({ title: "Document upload failed", body: err.message, tone: "danger" });
+    } finally {
+      setUploadingDoc(false);
+    }
+  };
+
+  const handleDeleteDocument = async (id: string) => {
+    try {
+      await deleteMyDocument(id);
+      toast({ title: "Document removed", tone: "info" });
+      await loadDocuments();
+    } catch (err: any) {
+      toast({ title: "Delete failed", body: err.message, tone: "danger" });
+    }
+  };
+
+  const PRESET_LOGOS = [
+    { name: "Cloud Tech", url: "https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=200&h=200&q=80" },
+    { name: "AI Brain", url: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=200&h=200&q=80" },
+    { name: "Cyber Shield", url: "https://images.unsplash.com/photo-1563986768609-322da13575f3?auto=format&fit=crop&w=200&h=200&q=80" },
+    { name: "MedTech Pulse", url: "https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?auto=format&fit=crop&w=200&h=200&q=80" },
+    { name: "Eco Green", url: "https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?auto=format&fit=crop&w=200&h=200&q=80" },
+  ];
+
+  const handleAddProduct = () => {
+    if (!newProdName.trim()) {
+      toast({ title: "Product name required", tone: "warn" });
+      return;
+    }
+    setProductsList((prev) => [
+      ...prev,
+      {
+        name: newProdName.trim(),
+        description: newProdDesc.trim(),
+        price: newProdPrice.trim() || "Contact for pricing",
+      },
+    ]);
+    setNewProdName("");
+    setNewProdDesc("");
+    setNewProdPrice("");
+    setShowAddProduct(false);
+    toast({ title: "Product added to draft", body: "Click 'Save Company Profile' to persist to MongoDB.", tone: "info" });
+  };
+
+  const handleRemoveProduct = (index: number) => {
+    setProductsList((prev) => prev.filter((_, i) => i !== index));
+    toast({ title: "Product removed", body: "Click 'Save Company Profile' to persist changes.", tone: "info" });
+  };
 
   const STAFF = [
     { n: "Amara Osei", r: "Booth Lead", e: "amara@nexoracloud.com", b: "Lead scanner, full access", a: ME.avatar },
@@ -29,75 +377,103 @@ export default function ExhibitorPortal() {
     { n: "Tom Berger", r: "Field Marketer", e: "tom@nexoracloud.com", b: "Lead scanner, full access", a: EXHIBITORS[4].avatar },
   ];
 
+  const NAV_ITEMS: PortalNavItem[] = [
+    { id: "overview", label: "Overview", icon: LayoutDashboard, group: "Manage" },
+    { id: "profile", label: "Company Profile", icon: Building2, group: "Manage" },
+    { id: "expos", label: "Expos & Applications", icon: CalendarClock, badge: myApps.length || undefined, group: "Manage" },
+    { id: "booth", label: "Booth & Floor Plan", icon: MapPin, group: "Manage" },
+    { id: "leads", label: "Leads", icon: Target, group: "Manage" },
+    { id: "staff", label: "Staff & badges", icon: Users, badge: ME.staff, group: "Manage" },
+    { id: "messages", label: "Messages & Support", icon: MessageSquare, group: "Communication" },
+    { id: "docs", label: "Documents", icon: FileCheck2, badge: myDocs.length || undefined, group: "Compliance" },
+    { id: "settings", label: "Settings", icon: Settings, group: "Compliance" },
+  ];
+
   return (
-    <div className="min-h-screen bg-slate-100/70">
-      {/* portal header */}
-      <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/92 backdrop-blur-xl">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <div className="flex h-16.5 items-center gap-3">
-            <Link to="/" className="font-display text-[16px] font-extrabold tracking-[-0.03em] text-slate-900">
-              Event<span className="text-brand-600">Sphere</span>
-            </Link>
-            <Badge tone="info" className="hidden sm:inline-flex">Exhibitor portal</Badge>
-            <div className="ml-auto flex items-center gap-2">
-              <Button size="sm" variant="secondary" icon={<Bell className="size-4" />} onClick={() => toast({ title: "3 unread notifications", tone: "info" })} className="hidden sm:inline-flex">Alerts</Button>
-              <Link to="/support"><Button size="sm" variant="ghost" icon={<MessageSquare className="size-4" />} className="hidden sm:inline-flex">Support</Button></Link>
-              <div className="flex items-center gap-2.5 rounded-xl border border-slate-200 py-1 pl-1 pr-3">
-                <Avatar src={user?.avatar ?? ME.avatar} name={user?.name ?? ME.rep} size={30} />
-                <div className="hidden leading-tight sm:block">
-                  <p className="text-[12px] font-bold text-slate-900">{ME.company}</p>
-                  <p className="text-[10px] text-slate-400">Booth {ME.booth}</p>
+    <PortalLayout
+      roleLabel="Exhibitor portal"
+      roleShort="Exhibitor"
+      nav={NAV_ITEMS}
+      active={tab}
+      onNavigate={setTab}
+      searchPlaceholder="Search leads, booths, documents…"
+      headerRight={
+        <Button
+          size="sm"
+          icon={<ScanLine className="size-4" />}
+          onClick={() => toast({ title: "Lead scanner", body: "Opens the camera view for badge scanning.", tone: "info" })}
+          className="hidden sm:inline-flex"
+        >
+          Lead scanner
+        </Button>
+      }
+      banner={
+        <section className="relative overflow-hidden bg-ink-950">
+          <div className="absolute inset-0 grid-noise-dark opacity-50" />
+          <div className="pointer-events-none absolute -left-24 -top-24 size-[420px] rounded-full bg-brand-600/30 blur-[120px]" />
+          <div className="pointer-events-none absolute -right-24 bottom-0 size-[380px] rounded-full bg-aqua-500/15 blur-[110px]" />
+          <div className="relative mx-auto max-w-7xl px-4 py-7 sm:px-6 lg:px-8">
+            <div className="flex flex-wrap items-center gap-5 lg:gap-7">
+              {/* Company avatar — left-anchored */}
+              <div className="shrink-0">
+                <ExhibitorLogo name={companyName} bg={ME.logoBg} size={68} />
+              </div>
+
+              {/* Company info — expands to fill left column */}
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h1 className="font-display text-[22px] font-extrabold tracking-[-0.025em] text-white sm:text-[25px]">
+                    {companyName}
+                  </h1>
+                  <Badge tone="purple" className="bg-white/10 text-purple-200 ring-white/15">
+                    {ME.badgeTier} exhibitor
+                  </Badge>
+                  <Badge tone="success" className="bg-white/10 text-emerald-200 ring-white/15" dot>
+                    Approved
+                  </Badge>
+                </div>
+                <p className="mt-1.5 max-w-2xl text-[13px] leading-relaxed text-slate-300/80 line-clamp-2">
+                  {description || "World-class expo exhibitor showcasing cutting-edge technology solutions and cloud infrastructure."}
+                </p>
+                <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1.5 text-[12px] text-slate-400">
+                  <span className="inline-flex items-center gap-1.5">
+                    <MapPin className="size-3.5 text-brand-400" />
+                    Booth {ME.booth} · {ME.hall}
+                  </span>
+                  <span className="inline-flex items-center gap-1.5">
+                    <Users className="size-3.5 text-cyan-400" />
+                    {ME.staff} staff badges
+                  </span>
+                  <span className="inline-flex items-center gap-1.5">
+                    <Star className="size-3.5 text-amber-400" />
+                    {ME.rating} exhibitor rating
+                  </span>
                 </div>
               </div>
-            </div>
-          </div>
-        </div>
-      </header>
 
-      {/* hero band */}
-      <section className="relative overflow-hidden bg-ink-950">
-        <div className="absolute inset-0 grid-noise-dark opacity-50" />
-        <div className="pointer-events-none absolute -left-24 -top-24 size-[380px] rounded-full bg-brand-600/25 blur-[110px]" />
-        <div className="pointer-events-none absolute -right-24 bottom-0 size-[380px] rounded-full bg-aqua-500/15 blur-[110px]" />
-        <div className="relative mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
-          <div className="flex flex-wrap items-center gap-6">
-            <ExhibitorLogo name={ME.company} bg={ME.logoBg} size={72} />
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <h1 className="font-display text-[26px] font-extrabold tracking-[-0.025em] text-white">{ME.company}</h1>
-                <Badge tone="purple" className="bg-white/10 text-purple-200 ring-white/15">{ME.badgeTier} exhibitor</Badge>
-                <Badge tone="success" className="bg-white/10 text-emerald-200 ring-white/15" dot>Approved</Badge>
-              </div>
-              <p className="mt-2 max-w-2xl text-[13.5px] text-slate-300/90">{ME.description}</p>
-              <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1.5 text-[12px] text-slate-400">
-                <span className="inline-flex items-center gap-1.5"><MapPin className="size-3.5" /> Booth {ME.booth} · {ME.hall}</span>
-                <span className="inline-flex items-center gap-1.5"><Users className="size-3.5" /> {ME.staff} staff badges</span>
-                <span className="inline-flex items-center gap-1.5"><Star className="size-3.5" /> {ME.rating} exhibitor rating</span>
+              {/* CTA buttons — right side */}
+              <div className="flex shrink-0 flex-wrap gap-2.5">
+                <Button
+                  variant="outline"
+                  icon={<Building2 className="size-4" />}
+                  onClick={() => setTab("profile")}
+                  className="border-white/20 text-white hover:bg-white/10"
+                >
+                  Company Profile
+                </Button>
+                <Button
+                  icon={<ScanLine className="size-4" />}
+                  onClick={() => toast({ title: "Lead scanner", body: "Opens the camera view for badge scanning.", tone: "info" })}
+                >
+                  Scanner
+                </Button>
               </div>
             </div>
-            <div className="flex flex-wrap gap-2.5">
-              <Button variant="outline" icon={<Pencil className="size-4" />} onClick={() => setEditProfile(true)}>Edit profile</Button>
-              <Button icon={<ScanLine className="size-4" />} onClick={() => toast({ title: "Lead scanner", body: "Opens the camera view for badge scanning.", tone: "info" })}>Open lead scanner</Button>
-            </div>
           </div>
-        </div>
-      </section>
-
-      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        <Tabs
-          active={tab}
-          onChange={setTab}
-          className="mb-6 w-fit max-w-full"
-          tabs={[
-            { id: "overview", label: "Overview" },
-            { id: "booth", label: "Booth & floor plan" },
-            { id: "leads", label: "Leads" },
-            { id: "staff", label: "Staff & badges" },
-            { id: "messages", label: "Messages", count: MESSAGES.length },
-            { id: "docs", label: "Documents" },
-            { id: "settings", label: "Settings" },
-          ]}
-        />
+        </section>
+      }
+    >
+      <div className="space-y-6">
 
         {tab === "overview" && (
           <div className="space-y-6">
@@ -187,58 +563,813 @@ export default function ExhibitorPortal() {
           </div>
         )}
 
-        {tab === "booth" && (
+        {tab === "profile" && (
           <div className="space-y-6">
-            <Card>
-              <CardHeader title="Your booth" subtitle="Current allocation and build details" right={<Badge tone="success" dot>Confirmed</Badge>} />
-              <div className="grid gap-5 p-5 lg:grid-cols-[1.4fr_1fr]">
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {[
-                    ["Booth ID", ME.booth],
-                    ["Location", ME.hall],
-                    ["Type", "Island · 4 open sides"],
-                    ["Size", "72 m² (9m × 8m)"],
-                    ["Included", "3-phase power · Wi-Fi · rigging"],
-                    ["Rate paid", money(12000)],
-                  ].map(([l, v]) => (
-                    <div key={l} className="rounded-xl border border-slate-200 p-3.5">
-                      <p className="text-[10.5px] font-bold uppercase tracking-wide text-slate-400">{l}</p>
-                      <p className="mt-1 text-[13.5px] font-bold text-slate-900">{v}</p>
+            {/* Header Card */}
+            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div className="flex items-center gap-4">
+                  <div className="grid size-14 place-items-center rounded-2xl bg-gradient-to-br from-brand-600 to-indigo-700 text-white shadow-md">
+                    <Building2 className="size-7" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2.5">
+                      <h2 className="font-display text-[22px] font-bold text-slate-900">Company Profile</h2>
+                      <Badge tone="success" dot>MongoDB Live</Badge>
+                      <Badge tone="brand">Step 2: Profile Management</Badge>
                     </div>
-                  ))}
+                    <p className="mt-1 text-[13px] text-slate-500">
+                      Manage your official exhibitor identity, branding, representative details, and products shown across EventSphere expos.
+                    </p>
+                  </div>
                 </div>
-                <div className="rounded-2xl bg-gradient-to-br from-brand-600 to-brand-800 p-5 text-white">
-                  <Sparkles className="size-5" />
-                  <p className="mt-3 font-display text-[15px] font-bold">Upgrade or relocate</p>
-                  <p className="mt-1.5 text-[12.5px] leading-relaxed text-white/75">
-                    34 booths remain available across Hall 4. Relocations are free until 14 days before build-up.
-                  </p>
-                  <Button variant="secondary" size="sm" className="mt-4 w-full" onClick={() => toast({ title: "Relocation request", body: "Our team will confirm within 4 hours.", tone: "success" })}>Request a change</Button>
+                <Button
+                  onClick={handleSaveProfile}
+                  disabled={profileSaving}
+                  icon={<Save className="size-4" />}
+                  className="shadow-sm"
+                >
+                  {profileSaving ? "Saving to MongoDB..." : "Save Company Profile"}
+                </Button>
+              </div>
+            </div>
+
+            <div className="grid gap-6 lg:grid-cols-3">
+              {/* Left Column: Brand & Logo Preview */}
+              <div className="space-y-6 lg:col-span-1">
+                <Card>
+                  <CardHeader title="Company Branding" subtitle="Logo and visual identity" />
+                  <div className="p-5 space-y-4">
+                    <div className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50/70 p-6 text-center">
+                      {logoUrl ? (
+                        <div className="relative group">
+                          <img
+                            src={logoUrl}
+                            alt={companyName}
+                            className="size-24 rounded-2xl object-cover ring-2 ring-brand-500/40 shadow-lg"
+                            onError={() => setLogoUrl("")}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setLogoUrl("")}
+                            className="absolute -top-2 -right-2 grid size-6 place-items-center rounded-full bg-rose-500 text-white shadow hover:bg-rose-600"
+                            title="Remove logo"
+                          >
+                            <X className="size-3.5" />
+                          </button>
+                        </div>
+                      ) : (
+                        <ExhibitorLogo name={companyName} bg={ME.logoBg} size={84} />
+                      )}
+                      <p className="mt-4 font-display text-[16px] font-bold text-slate-900">{companyName || "Your Company"}</p>
+                      <p className="text-[12px] text-slate-500">{category}</p>
+                      <Badge tone="purple" className="mt-2.5">
+                        {ME.badgeTier} Exhibitor Tier
+                      </Badge>
+
+                      <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+                        <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-1.5 text-[12px] font-bold text-slate-700 shadow-sm hover:border-brand-500 hover:text-brand-600 transition">
+                          <Upload className="size-3.5" />
+                          {uploadingLogo ? "Uploading..." : "Upload Logo"}
+                          <input type="file" accept="image/*" className="hidden" onChange={handleLogoUpload} />
+                        </label>
+                      </div>
+                    </div>
+
+                    {/* Logo Image URL field */}
+                    <Field label="Or paste Logo Image URL">
+                      <Input
+                        value={logoUrl}
+                        onChange={(e) => setLogoUrl(e.target.value)}
+                        placeholder="https://.../logo.png"
+                      />
+                    </Field>
+
+                    {/* Preset Logo Selection */}
+                    <div>
+                      <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">Sample High-Res Logos</p>
+                      <div className="grid grid-cols-5 gap-2">
+                        {PRESET_LOGOS.map((pl) => (
+                          <button
+                            key={pl.name}
+                            type="button"
+                            onClick={() => setLogoUrl(pl.url)}
+                            className={cn(
+                              "overflow-hidden rounded-xl border p-1 transition hover:scale-105",
+                              logoUrl === pl.url ? "border-brand-600 ring-2 ring-brand-500/30" : "border-slate-200"
+                            )}
+                            title={pl.name}
+                          >
+                            <img src={pl.url} alt={pl.name} className="size-10 rounded-lg object-cover" />
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-3.5 space-y-2 text-[12px] text-slate-600">
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">Headquarters</span>
+                        <span className="font-semibold text-slate-800">{country}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">Verification</span>
+                        <span className="font-semibold text-emerald-600">Verified Exhibitor</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">Exhibitor ID</span>
+                        <span className="font-mono text-[11px] text-slate-500">{ME.id}</span>
+                      </div>
+                    </div>
+                  </div>
+                </Card>
+
+                {/* Privacy & Public Visibility */}
+                <Card>
+                  <CardHeader title="Public Visibility" subtitle="Attendee privacy controls" />
+                  <div className="divide-y divide-slate-100 p-2">
+                    <div className="flex items-center justify-between p-3">
+                      <div>
+                        <p className="text-[13px] font-bold text-slate-900">Show on Floor Plan</p>
+                        <p className="text-[11.5px] text-slate-500">Show assigned booth on interactive map</p>
+                      </div>
+                      <Toggle
+                        checked={visibilitySettings.showBoothOnPlan}
+                        onChange={(v) => setVisibilitySettings({ ...visibilitySettings, showBoothOnPlan: v })}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between p-3">
+                      <div>
+                        <p className="text-[13px] font-bold text-slate-900">Attendee Direct Chat</p>
+                        <p className="text-[11.5px] text-slate-500">Allow verified attendees to message you</p>
+                      </div>
+                      <Toggle
+                        checked={visibilitySettings.allowAttendeeChat}
+                        onChange={(v) => setVisibilitySettings({ ...visibilitySettings, allowAttendeeChat: v })}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between p-3">
+                      <div>
+                        <p className="text-[13px] font-bold text-slate-900">Public Business Email</p>
+                        <p className="text-[11.5px] text-slate-500">Display email in public directory</p>
+                      </div>
+                      <Toggle
+                        checked={visibilitySettings.showEmailPublicly}
+                        onChange={(v) => setVisibilitySettings({ ...visibilitySettings, showEmailPublicly: v })}
+                      />
+                    </div>
+                  </div>
+                </Card>
+              </div>
+
+              {/* Right Column: Company Info & Products */}
+              <div className="space-y-6 lg:col-span-2">
+                <Card>
+                  <CardHeader title="Company Information" subtitle="Official registration and business details" />
+                  <div className="p-5 grid gap-4 sm:grid-cols-2">
+                    <Field label="Company Name" required className="sm:col-span-2">
+                      <Input
+                        value={companyName}
+                        onChange={(e) => setCompanyName(e.target.value)}
+                        placeholder="e.g. Acme Technologies Inc."
+                      />
+                    </Field>
+
+                    <Field label="Industry / Category" required>
+                      <Select value={category} onChange={(e) => setCategory(e.target.value)}>
+                        {[
+                          "Cloud Infrastructure",
+                          "Industrial Automation",
+                          "Medical Devices",
+                          "Renewables",
+                          "Data & AI",
+                          "Cybersecurity",
+                          "Logistics",
+                          "Fintech & Payments",
+                          "Materials",
+                          "Consumer Electronics",
+                          "Other",
+                        ].map((c) => (
+                          <option key={c} value={c}>{c}</option>
+                        ))}
+                      </Select>
+                    </Field>
+
+                    <Field label="Country / Region" required>
+                      <Select value={country} onChange={(e) => setCountry(e.target.value)}>
+                        {["United States", "Germany", "Switzerland", "Singapore", "United Kingdom", "United Arab Emirates", "Pakistan", "India", "Netherlands"].map((c) => (
+                          <option key={c} value={c}>{c}</option>
+                        ))}
+                      </Select>
+                    </Field>
+
+                    <Field label="Official Website">
+                      <Input
+                        value={website}
+                        onChange={(e) => setWebsite(e.target.value)}
+                        placeholder="https://yourcompany.com"
+                      />
+                    </Field>
+
+                    <Field label="Company Registration / Tax ID">
+                      <Input
+                        value={registrationNo}
+                        onChange={(e) => setRegistrationNo(e.target.value)}
+                        placeholder="e.g. US-DE-104928"
+                      />
+                    </Field>
+
+                    <Field label="Founded Year">
+                      <Input
+                        type="number"
+                        value={String(foundedYear)}
+                        onChange={(e) => setFoundedYear(e.target.value)}
+                        placeholder="e.g. 2020"
+                      />
+                    </Field>
+
+                    <Field label="Official Address" className="sm:col-span-2">
+                      <Input
+                        value={companyAddress}
+                        onChange={(e) => setCompanyAddress(e.target.value)}
+                        placeholder="Suite, Street Address, City, State/Province"
+                      />
+                    </Field>
+
+                    <Field label="Company Description (About Us)" className="sm:col-span-2" required>
+                      <Textarea
+                        rows={4}
+                        value={description}
+                        onChange={(e) => setDescription(e.target.value)}
+                        placeholder="Comprehensive description of your company, mission, capabilities and what attendees will experience at your booth..."
+                      />
+                    </Field>
+                  </div>
+                </Card>
+
+                {/* Primary Representative */}
+                <Card>
+                  <CardHeader title="Primary Representative & Contacts" subtitle="Designated point of contact for expos" />
+                  <div className="p-5 grid gap-4 sm:grid-cols-2">
+                    <Field label="Representative Full Name" required>
+                      <Input
+                        value={repName}
+                        onChange={(e) => setRepName(e.target.value)}
+                        placeholder="e.g. Amara Osei"
+                      />
+                    </Field>
+
+                    <Field label="Business Email" required>
+                      <Input
+                        type="email"
+                        value={contactEmail}
+                        onChange={(e) => setContactEmail(e.target.value)}
+                        placeholder="rep@company.com"
+                      />
+                    </Field>
+
+                    <Field label="Business Phone">
+                      <Input
+                        value={businessPhone}
+                        onChange={(e) => setBusinessPhone(e.target.value)}
+                        placeholder="+1 (555) 000-0000"
+                      />
+                    </Field>
+
+                    <div className="flex items-end">
+                      <div className="w-full rounded-xl border border-brand-200 bg-brand-50/60 p-3 text-[12px] text-brand-900 leading-snug">
+                        Organizers will contact this representative regarding booth approvals, build deadlines, and passes.
+                      </div>
+                    </div>
+                  </div>
+                </Card>
+
+                {/* Products & Services Showcase */}
+                <Card>
+                  <CardHeader
+                    title="Products & Services Showcase"
+                    subtitle="Offerings displayed to attendees in the expo directory"
+                    right={
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        icon={<Plus className="size-4" />}
+                        onClick={() => setShowAddProduct(!showAddProduct)}
+                      >
+                        Add Product / Service
+                      </Button>
+                    }
+                  />
+
+                  {showAddProduct && (
+                    <div className="border-b border-slate-100 bg-slate-50/80 p-5 space-y-3">
+                      <h4 className="text-[13px] font-bold text-slate-800">Add New Product or Solution</h4>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <Field label="Product Name" required>
+                          <Input
+                            value={newProdName}
+                            onChange={(e) => setNewProdName(e.target.value)}
+                            placeholder="e.g. Cloud API Gateway"
+                          />
+                        </Field>
+                        <Field label="Price / Tier Label">
+                          <Input
+                            value={newProdPrice}
+                            onChange={(e) => setNewProdPrice(e.target.value)}
+                            placeholder="e.g. From $999 / mo or Contact Sales"
+                          />
+                        </Field>
+                        <Field label="Description" className="sm:col-span-2">
+                          <Input
+                            value={newProdDesc}
+                            onChange={(e) => setNewProdDesc(e.target.value)}
+                            placeholder="Key features, enterprise use cases or benefits..."
+                          />
+                        </Field>
+                      </div>
+                      <div className="flex justify-end gap-2 pt-2">
+                        <Button size="sm" variant="ghost" onClick={() => setShowAddProduct(false)}>Cancel</Button>
+                        <Button size="sm" onClick={handleAddProduct}>Add to Showcase</Button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="divide-y divide-slate-100">
+                    {productsList.map((prod, idx) => (
+                      <div key={idx} className="flex flex-wrap items-center justify-between gap-4 p-5">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <p className="text-[14px] font-bold text-slate-900">{prod.name}</p>
+                            {prod.price && <Badge tone="brand" className="text-[11px]">{prod.price}</Badge>}
+                          </div>
+                          {prod.description && (
+                            <p className="mt-1 text-[12.5px] text-slate-500">{prod.description}</p>
+                          )}
+                        </div>
+                        <Button
+                          size="xs"
+                          variant="ghost"
+                          icon={<Trash2 className="size-3.5 text-rose-500" />}
+                          onClick={() => handleRemoveProduct(idx)}
+                        >
+                          Remove
+                        </Button>
+                      </div>
+                    ))}
+                    {productsList.length === 0 && (
+                      <div className="p-8 text-center text-[13px] text-slate-400">
+                        No products added yet. Click &quot;Add Product / Service&quot; above to list your solutions.
+                      </div>
+                    )}
+                  </div>
+                </Card>
+
+                {/* Final Action Bar */}
+                <div className="flex items-center justify-end gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <Button
+                    onClick={handleSaveProfile}
+                    disabled={profileSaving}
+                    icon={<Save className="size-4" />}
+                    size="lg"
+                  >
+                    {profileSaving ? "Saving to MongoDB..." : "Save Company Profile"}
+                  </Button>
                 </div>
               </div>
+            </div>
+          </div>
+        )}
+
+        {tab === "expos" && (
+          <div className="space-y-8">
+            {/* Header banner */}
+            <div className="rounded-2xl border border-brand-200 bg-gradient-to-r from-brand-50 to-indigo-50/60 p-5">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div>
+                  <h3 className="font-display text-[18px] font-bold text-slate-900">
+                    Apply for Upcoming Expos & Trade Shows
+                  </h3>
+                  <p className="mt-1 text-[13px] text-slate-600">
+                    Select any published event to submit your company profile and booth request to the organizer for approval.
+                  </p>
+                </div>
+                <Badge tone="brand" className="text-[12px] px-3 py-1">
+                  {liveExpos.length} Expos Accepting Applications
+                </Badge>
+              </div>
+            </div>
+
+            {/* My Submitted Applications */}
+            <Card>
+              <CardHeader
+                title="My Submitted Applications"
+                subtitle="Live status of your expo applications in MongoDB"
+                right={<Badge tone={myApps.some((a) => a.status === "approved") ? "success" : "brand"}>{myApps.length} Submitted</Badge>}
+              />
+              {myApps.length === 0 ? (
+                <div className="p-8 text-center">
+                  <CalendarClock className="mx-auto size-9 text-slate-300" />
+                  <p className="mt-2 text-[14px] font-bold text-slate-700">No applications submitted yet</p>
+                  <p className="mt-1 text-[12.5px] text-slate-500">
+                    Browse the available expos below and apply to secure your booth space!
+                  </p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[700px] text-left text-[13.5px]">
+                    <thead>
+                      <tr className="border-b border-slate-200 bg-slate-50/80">
+                        {["Expo", "Dates", "Tier / Zone", "Submitted", "Review Status", "Assigned Booth"].map((h) => (
+                          <th key={h} className="px-5 py-3 text-[11px] font-bold uppercase tracking-wider text-slate-500">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {myApps.map((a: any) => {
+                        const expoTitle = a.expo?.title || "Expo";
+                        const isApproved = a.status === "approved";
+                        const isPending = a.status === "pending" || a.status === "under_review";
+                        const isRejected = a.status === "rejected";
+                        return (
+                          <tr key={a._id} className="border-b border-slate-100 transition last:border-0 hover:bg-slate-50/60">
+                            <td className="px-5 py-4">
+                              <p className="font-bold text-slate-900">{expoTitle}</p>
+                              <p className="text-[11.5px] text-slate-500">{a.expo?.venue?.city || a.expo?.venue?.name || "Venue"}</p>
+                            </td>
+                            <td className="whitespace-nowrap px-5 py-4 text-[12.5px] text-slate-600">
+                              {a.expo?.startDate ? new Date(a.expo.startDate).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "TBD"} –{" "}
+                              {a.expo?.endDate ? new Date(a.expo.endDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : ""}
+                            </td>
+                            <td className="px-5 py-4">
+                              <div className="flex items-center gap-1.5">
+                                <Badge tone="purple">{a.tier || "Standard"}</Badge>
+                                <span className="text-[12px] text-slate-500">Zone {a.requestedZone || "A"}</span>
+                              </div>
+                            </td>
+                            <td className="whitespace-nowrap px-5 py-4 text-[12px] text-slate-500">
+                              {a.submittedAt ? new Date(a.submittedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "Today"}
+                            </td>
+                            <td className="px-5 py-4">
+                              <Badge
+                                tone={isApproved ? "success" : isRejected ? "danger" : isPending ? "warn" : "info"}
+                                dot={isApproved || isPending}
+                              >
+                                {isApproved ? "Approved ✓" : isRejected ? "Rejected" : "Pending Review"}
+                              </Badge>
+                              {a.rejectionReason && (
+                                <p className="mt-1 text-[11px] text-rose-600 max-w-xs">{a.rejectionReason}</p>
+                              )}
+                            </td>
+                            <td className="px-5 py-4">
+                              {a.boothLabel || a.booth?.boothId ? (
+                                <span className="inline-flex items-center gap-1.5 font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200 text-[12px]">
+                                  <MapPin className="size-3.5" /> Booth {a.boothLabel || a.booth?.boothId}
+                                </span>
+                              ) : (
+                                <span className="text-[12px] text-slate-400 italic">
+                                  {isApproved ? "Awaiting booth allocation" : "Assigned upon approval"}
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </Card>
 
+            {/* Published Expos List */}
+            <div>
+              <div className="mb-4">
+                <h3 className="font-display text-[18px] font-bold text-slate-900">Available Expos from Organizers</h3>
+                <p className="text-[13px] text-slate-500">Explore published expos created by EventSphere admins and apply today.</p>
+              </div>
+
+              <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+                {liveExpos.map((e) => {
+                  const existingApp = myApps.find((a: any) => (a.expo?._id || a.expo?.id || a.expo) === e.id);
+                  const isApproved = existingApp?.status === "approved";
+                  const isPending = existingApp?.status === "pending" || existingApp?.status === "under_review";
+                  return (
+                    <Card key={e.id} className="overflow-hidden flex flex-col">
+                      <div className="relative h-40 w-full overflow-hidden bg-slate-900">
+                        <img
+                          src={e.cover}
+                          alt={e.title}
+                          className="h-full w-full object-cover transition duration-300 hover:scale-105"
+                          onError={(ev) => {
+                            (ev.target as HTMLImageElement).src =
+                              "https://images.pexels.com/photos/38041486/pexels-photo-38041486.jpeg?auto=compress&cs=tinysrgb&fit=crop&h=627&w=1200";
+                          }}
+                        />
+                        <div className="absolute top-3 left-3">
+                          <Badge tone={e.status === "Live" ? "danger" : "brand"}>{e.status}</Badge>
+                        </div>
+                        <div className="absolute top-3 right-3">
+                          <span className="rounded-md bg-black/60 backdrop-blur-md px-2 py-1 text-[11px] font-bold text-white">
+                            {e.category}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="p-5 flex-1 flex flex-col justify-between">
+                        <div>
+                          <h4 className="font-display text-[16px] font-bold text-slate-900 leading-snug">{e.title}</h4>
+                          <p className="mt-1 flex items-center gap-1.5 text-[12px] text-slate-500">
+                            <MapPin className="size-3.5 text-brand-500 shrink-0" />
+                            {e.venue || e.city}
+                          </p>
+                          <p className="mt-0.5 flex items-center gap-1.5 text-[12px] text-slate-500">
+                            <CalendarClock className="size-3.5 text-slate-400 shrink-0" />
+                            {e.startDate ? new Date(e.startDate).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : ""} –{" "}
+                            {e.endDate ? new Date(e.endDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : ""}
+                          </p>
+                          <p className="mt-2 text-[12.5px] text-slate-600 line-clamp-2">{e.description}</p>
+                        </div>
+
+                        <div className="mt-5 pt-4 border-t border-slate-100 flex items-center justify-between">
+                          {existingApp ? (
+                            <div className="flex items-center gap-2">
+                              <Badge tone={isApproved ? "success" : isPending ? "warn" : "danger"}>
+                                {isApproved ? `Approved: ${existingApp.boothLabel || "Booth Confirmed"}` : isPending ? "Application Pending" : "Application Rejected"}
+                              </Badge>
+                            </div>
+                          ) : (
+                            <span className="text-[12px] text-slate-400">Applications open</span>
+                          )}
+
+                          <Button
+                            size="sm"
+                            variant={existingApp ? "outline" : undefined}
+                            onClick={() => {
+                              setApplyExpo(e);
+                              setApplyForm((prev) => ({
+                                ...prev,
+                                showcaseSummary: `Our company ${companyName} intends to showcase enterprise solutions and engage with key attendees at ${e.title}.`,
+                              }));
+                            }}
+                          >
+                            {existingApp ? (existingApp.status === "rejected" ? "Re-apply" : "View Application") : "Apply for Expo"}
+                          </Button>
+                        </div>
+                      </div>
+                    </Card>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {tab === "booth" && (
+          <div className="space-y-6">
+            {/* Expo Selector Bar */}
+            <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="flex items-center gap-3.5">
+                <div className="grid size-12 place-items-center rounded-2xl bg-brand-50 text-brand-600">
+                  <MapPin className="size-6" />
+                </div>
+                <div>
+                  <h3 className="font-display text-[16px] font-bold text-slate-900">Expo Floor Plan & Booth Allocation</h3>
+                  <p className="text-[12.5px] text-slate-500">Live MongoDB floor layout, booth statuses, and your assigned space</p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <span className="text-[12.5px] font-medium text-slate-500">Active Expo:</span>
+                <Select
+                  value={selectedExpoId}
+                  onChange={(e) => setSelectedExpoId(e.target.value)}
+                  className="h-10 min-w-[240px]"
+                >
+                  {liveExpos.map((e) => (
+                    <option key={e.id} value={e.id}>
+                      {e.title} ({e.city || "Venue"})
+                    </option>
+                  ))}
+                </Select>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  icon={<RefreshCw className="size-3.5" />}
+                  onClick={() => {
+                    if (selectedExpoId) {
+                      setLoadingBooths(true);
+                      fetchLiveBooths(selectedExpoId).then((b) => setLiveBooths(b)).finally(() => setLoadingBooths(false));
+                    }
+                  }}
+                  title="Refresh floor plan"
+                />
+              </div>
+            </div>
+
+            {/* Current Allocation Card */}
+            {(() => {
+              const currentExpo = liveExpos.find((e) => e.id === selectedExpoId);
+              const currentApp = myApps.find(
+                (a: any) => (a.expo?._id || a.expo?.id || a.expo) === selectedExpoId
+              );
+              const isAppApproved = currentApp?.status === "approved";
+              const isPending = currentApp?.status === "pending" || currentApp?.status === "under_review";
+              const allocatedBoothId = currentApp?.boothLabel || currentApp?.booth?.boothId;
+
+              return (
+                <Card>
+                  <CardHeader
+                    title="Your Booth Allocation"
+                    subtitle={currentExpo ? `${currentExpo.title} — ${currentExpo.venue || currentExpo.city}` : "Allocation details"}
+                    right={
+                      isAppApproved && allocatedBoothId ? (
+                        <Badge tone="success" dot>Confirmed & Allocated</Badge>
+                      ) : isAppApproved ? (
+                        <Badge tone="brand" dot>Approved — Select a Booth Below</Badge>
+                      ) : isPending ? (
+                        <Badge tone="warn" dot>Application Pending Review</Badge>
+                      ) : (
+                        <Badge tone="neutral">No Application Yet</Badge>
+                      )
+                    }
+                  />
+                  <div className="grid gap-5 p-5 lg:grid-cols-[1.4fr_1fr]">
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="rounded-xl border border-slate-200 p-3.5">
+                        <p className="text-[10.5px] font-bold uppercase tracking-wide text-slate-400">Assigned Booth</p>
+                        <p className="mt-1 text-[16px] font-bold text-slate-900">
+                          {allocatedBoothId ? `Booth ${allocatedBoothId}` : "Not Assigned Yet"}
+                        </p>
+                      </div>
+                      <div className="rounded-xl border border-slate-200 p-3.5">
+                        <p className="text-[10.5px] font-bold uppercase tracking-wide text-slate-400">Hall & Zone</p>
+                        <p className="mt-1 text-[14px] font-bold text-slate-900">
+                          {currentApp?.requestedZone ? `Hall 4 · Zone ${currentApp.requestedZone}` : "Main Exhibition Hall"}
+                        </p>
+                      </div>
+                      <div className="rounded-xl border border-slate-200 p-3.5">
+                        <p className="text-[10.5px] font-bold uppercase tracking-wide text-slate-400">Booth Type & Dimensions</p>
+                        <p className="mt-1 text-[14px] font-bold text-slate-900">
+                          {currentApp?.requestedCategory || "Island"} · 36 m² (6m × 6m)
+                        </p>
+                      </div>
+                      <div className="rounded-xl border border-slate-200 p-3.5">
+                        <p className="text-[10.5px] font-bold uppercase tracking-wide text-slate-400">Inclusions</p>
+                        <p className="mt-1 text-[13px] font-bold text-slate-900">
+                          3-Phase Power · High-Speed Wi-Fi · Rigging
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl bg-gradient-to-br from-brand-600 to-indigo-800 p-5 text-white flex flex-col justify-between">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <Sparkles className="size-5 text-amber-300" />
+                          <p className="font-display text-[15px] font-bold">Booth Reservation & Status</p>
+                        </div>
+                        <p className="mt-2 text-[12.5px] leading-relaxed text-white/80">
+                          {isAppApproved && allocatedBoothId
+                            ? `You are confirmed in Booth ${allocatedBoothId}. Select any green available booth below to request a relocation.`
+                            : isAppApproved
+                            ? "Your application is approved! Select an available booth on the interactive floor plan below and click 'Reserve This Booth Space'."
+                            : isPending
+                            ? "Your application for this expo is currently under review by the organizers. Booth allocation will unlock once approved."
+                            : "You have not submitted an application for this expo yet. Click below to apply."}
+                        </p>
+                      </div>
+                      {!currentApp ? (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          className="mt-4 w-full"
+                          onClick={() => {
+                            if (currentExpo) setApplyExpo(currentExpo);
+                          }}
+                        >
+                          Apply for this Expo
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          className="mt-4 w-full"
+                          onClick={() => {
+                            if (allocatedBoothId) {
+                              toast({ title: "Relocation request submitted", body: "The organizer will review your relocation request.", tone: "success" });
+                            } else {
+                              toast({ title: "Select a Booth", body: "Click on any available green booth in the floor plan below to reserve.", tone: "info" });
+                            }
+                          }}
+                        >
+                          {allocatedBoothId ? "Request Booth Change" : "Browse Floor Plan Below"}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </Card>
+              );
+            })()}
+
+            {/* Interactive Floor Plan */}
             <div>
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <h3 className="font-display text-[18px] font-bold tracking-tight text-slate-900">Reserve a different booth</h3>
-                  <p className="mt-1 text-[13px] text-slate-500">Click any green booth to select it, then confirm your reservation.</p>
+                  <h3 className="font-display text-[18px] font-bold tracking-tight text-slate-900">
+                    Interactive Expo Floor Plan
+                  </h3>
+                  <p className="mt-1 text-[13px] text-slate-500">
+                    Live floor layout loaded from MongoDB. Click any green booth to inspect dimensions and reserve space.
+                  </p>
                 </div>
-                {booth && <Badge tone="brand">Selected: {booth}</Badge>}
+                {booth && <Badge tone="brand">Selected Booth: {booth}</Badge>}
               </div>
-              <FloorPlan mode="select" selected={booth} onSelect={setBooth} height={520} />
-              {booth && (
-                <div className="mt-5 flex flex-wrap items-center gap-3 rounded-2xl border border-brand-200 bg-brand-50/70 p-4">
-                  <span className="grid size-10 place-items-center rounded-xl bg-brand-600 text-white"><Check className="size-5" /></span>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[13.5px] font-bold text-brand-900">Booth {booth} selected</p>
-                    <p className="mt-0.5 text-[12px] text-brand-800/75">
-                      {BOOTHS.find((b) => b.id === booth)?.sqm} m² · {money(BOOTHS.find((b) => b.id === booth)?.price ?? 0)} — subject to organizer approval.
-                    </p>
+
+              {loadingBooths ? (
+                <div className="flex h-96 items-center justify-center rounded-2xl border border-slate-200 bg-white">
+                  <div className="flex flex-col items-center gap-2 text-slate-400">
+                    <RefreshCw className="size-6 animate-spin text-brand-600" />
+                    <p className="text-[13px]">Loading floor plan from MongoDB...</p>
                   </div>
-                  <Button onClick={() => setConfirm(true)}>Request reservation</Button>
                 </div>
+              ) : (
+                <FloorPlan
+                  key={selectedExpoId}
+                  expoId={selectedExpoId}
+                  mode="select"
+                  selected={booth}
+                  onSelect={setBooth}
+                  booths={liveBooths.length > 0 ? liveBooths : undefined}
+                  onBoothsLoaded={(booths) => setLiveBooths(booths)}
+                  height={520}
+                />
               )}
+
+              {(() => {
+                if (!booth) return null;
+                const currentBoothObj = liveBooths.find((b) => b.id === booth || (b as any)._id === booth);
+                const isAvailable = currentBoothObj ? currentBoothObj.status === "available" : true;
+                const isReserved = currentBoothObj?.status === "reserved";
+
+                return (
+                  <div className="mt-5 rounded-2xl border border-brand-200 bg-white p-5 shadow-sm">
+                    <div className="flex flex-wrap items-center justify-between gap-4">
+                      <div className="flex items-center gap-3.5">
+                        <div
+                          className={cn(
+                            "grid size-12 place-items-center rounded-2xl font-display font-extrabold text-[15px]",
+                            isAvailable
+                              ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
+                              : isReserved
+                              ? "border border-amber-200 bg-amber-50 text-amber-700"
+                              : "border border-indigo-200 bg-indigo-50 text-indigo-700"
+                          )}
+                        >
+                          {booth}
+                        </div>
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h4 className="font-display text-[16px] font-bold text-slate-900">Booth {booth}</h4>
+                            <Badge tone={isAvailable ? "success" : isReserved ? "warn" : "neutral"}>
+                              {isAvailable ? "Available Space" : isReserved ? "Reserved" : "Booked"}
+                            </Badge>
+                            {currentBoothObj?.size && <Badge tone="brand">{currentBoothObj.size}</Badge>}
+                          </div>
+                          <p className="mt-1 text-[12.5px] text-slate-500">
+                            Zone {currentBoothObj?.zone || "A"} · {currentBoothObj?.sqm || 12} m² · $
+                            {currentBoothObj?.price ? currentBoothObj.price.toLocaleString() : "2,600"} USD
+                            {currentBoothObj?.owner && ` · Occupied by ${currentBoothObj.owner}`}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2.5">
+                        {isAvailable && (
+                          <Button
+                            onClick={() => handleReserveBooth(booth)}
+                            disabled={reservingBooth}
+                            icon={<Check className="size-4" />}
+                          >
+                            {reservingBooth ? "Reserving in MongoDB..." : "Reserve This Booth Space"}
+                          </Button>
+                        )}
+
+                        {isReserved && (
+                          <Button
+                            variant="outline"
+                            onClick={() => handleReleaseBooth(booth)}
+                            disabled={reservingBooth}
+                            className="border-rose-200 text-rose-700 hover:bg-rose-50"
+                          >
+                            {reservingBooth ? "Releasing..." : "Release Reservation"}
+                          </Button>
+                        )}
+
+                        <Button variant="ghost" size="sm" onClick={() => setBooth(null)}>
+                          Close
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           </div>
         )}
@@ -351,87 +1482,171 @@ export default function ExhibitorPortal() {
         )}
 
         {tab === "messages" && (
-          <div className="grid gap-6 lg:grid-cols-2">
-            <Card>
-              <CardHeader title="Inbox" subtitle={`${MESSAGES.filter((m) => m.unread).length} unread`} />
-              <div className="divide-y divide-slate-100">
-                {MESSAGES.map((m) => (
-                  <button key={m.id} onClick={() => toast({ title: "Thread opened", body: m.subject, tone: "info" })} className="flex w-full gap-3 px-5 py-3.5 text-left transition hover:bg-slate-50/70">
-                    <span className="relative shrink-0">
-                      {m.avatar ? <Avatar src={m.avatar} name={m.from} size={38} /> : (
-                        <span className="grid size-9.5 place-items-center rounded-full bg-gradient-to-br from-slate-600 to-slate-800 text-white"><Building2 className="size-4" /></span>
-                      )}
-                      {m.unread && <span className="absolute -right-0.5 -top-0.5 size-2.5 rounded-full bg-brand-600 ring-2 ring-white" />}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-baseline justify-between gap-2">
-                        <p className={cn("truncate text-[13px]", m.unread ? "font-bold text-slate-900" : "font-semibold text-slate-700")}>{m.from}</p>
-                        <span className="shrink-0 text-[10.5px] text-slate-400">{m.date}</span>
-                      </div>
-                      <p className="mt-0.5 truncate text-[12px] text-slate-500">{m.subject}</p>
-                      <p className="mt-0.5 line-clamp-1 text-[11.5px] text-slate-400">{m.preview}</p>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </Card>
-            <Card>
-              <CardHeader title="Message the organizers" subtitle="Typical reply within 4 hours" />
-              <div className="space-y-4 p-5">
-                <Field label="Topic"><Select>{["Booth & build", "Power & rigging", "Shipping & storage", "Billing", "Lead scanner", "Other"].map((t) => <option key={t}>{t}</option>)}</Select></Field>
-                <Field label="Message" required><Textarea placeholder="How can we help?" /></Field>
-                <Button icon={<Send className="size-4" />} onClick={() => toast({ title: "Message sent", body: "EventSphere Organizing Team will reply shortly.", tone: "success" })}>Send message</Button>
-                <div className="rounded-xl bg-brand-50 p-4 text-[12.5px] leading-relaxed text-brand-900">
-                  <b>Neighbour channel:</b> you can also message exhibitors in adjacent booths directly — great for co-hosted
-                  demos and shared storage.
-                </div>
-              </div>
-            </Card>
+          <div className="space-y-4">
+            <RealtimeChatView defaultFilter="ALL" />
           </div>
         )}
 
         {tab === "docs" && (
-          <div className="grid gap-6 lg:grid-cols-3">
-            <Card className="lg:col-span-2">
-              <CardHeader title="Required documents" subtitle="Status of your compliance pack" right={<Badge tone="success" dot>Complete</Badge>} />
-              <div className="grid gap-3 p-5 sm:grid-cols-2">
-                {[
-                  ["Certificate of incorporation", "Verified", "12 Jan 2026"],
-                  ["Public liability insurance", "Verified", "12 Jan 2026"],
-                  ["Product liability waiver", "Verified", "18 Jan 2026"],
-                  ["Booth build risk assessment", "Verified", "02 Feb 2026"],
-                  ["Staff list & badge photos", "Verified", "09 Feb 2026"],
-                  ["Electrical certificate", "Verified", "14 Feb 2026"],
-                ].map(([n, s, d]) => (
-                  <div key={n} className="flex items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50/40 p-3.5">
-                    <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-emerald-100 text-emerald-600"><FileCheck2 className="size-4" /></span>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-[12.5px] font-bold text-slate-900">{n}</p>
-                      <p className="text-[11px] text-slate-500">Uploaded {d}</p>
-                    </div>
-                    <Badge tone="success">{s}</Badge>
-                  </div>
-                ))}
-              </div>
-            </Card>
-            <Card>
-              <CardHeader title="Upload a document" subtitle="PDF, JPG or PNG · max 10 MB" />
-              <div className="p-5">
-                <button onClick={() => toast({ title: "File picker opened", tone: "info" })} className="flex w-full flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50/60 px-4 py-10 text-center transition hover:border-brand-400 hover:bg-brand-50/40">
-                  <span className="grid size-12 place-items-center rounded-2xl bg-white text-brand-600 shadow-sm"><Upload className="size-5" /></span>
-                  <p className="mt-3.5 text-[13px] font-bold text-slate-900">Drop a file here or click to browse</p>
-                  <p className="mt-1 text-[11.5px] text-slate-500">Your documents are encrypted at rest</p>
-                </button>
-                <div className="mt-5 space-y-2.5">
-                  {[["Under review", 1], ["Verified", 6], ["Rejected", 0]].map(([l, v]) => (
-                    <div key={l as string} className="flex items-center justify-between rounded-xl bg-slate-50 px-3.5 py-2.5">
-                      <span className="text-[12.5px] font-medium text-slate-600">{l as string}</span>
-                      <span className="text-[13px] font-bold text-slate-900">{v as number}</span>
-                    </div>
-                  ))}
+          <div className="space-y-6">
+            {/* Header KPI cards */}
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div className="flex items-center gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="grid size-12 place-items-center rounded-2xl bg-brand-50 text-brand-600">
+                  <FileText className="size-6" />
+                </div>
+                <div>
+                  <p className="font-display text-[22px] font-bold text-slate-900">{myDocs.length}</p>
+                  <p className="text-[12px] font-medium text-slate-500">Total Uploaded Documents</p>
                 </div>
               </div>
-            </Card>
+
+              <div className="flex items-center gap-4 rounded-2xl border border-emerald-200 bg-white p-5 shadow-sm">
+                <div className="grid size-12 place-items-center rounded-2xl bg-emerald-50 text-emerald-600">
+                  <FileCheck2 className="size-6" />
+                </div>
+                <div>
+                  <p className="font-display text-[22px] font-bold text-emerald-700">
+                    {myDocs.filter((d) => d.status === "verified").length}
+                  </p>
+                  <p className="text-[12px] font-medium text-slate-500">Verified by Organizers</p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-4 rounded-2xl border border-amber-200 bg-white p-5 shadow-sm">
+                <div className="grid size-12 place-items-center rounded-2xl bg-amber-50 text-amber-600">
+                  <Clock className="size-6" />
+                </div>
+                <div>
+                  <p className="font-display text-[22px] font-bold text-amber-700">
+                    {myDocs.filter((d) => d.status === "pending" || !d.status).length}
+                  </p>
+                  <p className="text-[12px] font-medium text-slate-500">Pending Review</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid gap-6 lg:grid-cols-3">
+              {/* Upload Document Card */}
+              <Card className="lg:col-span-1">
+                <CardHeader title="Upload Compliance Document" subtitle="Upload required certificates for approval" />
+                <div className="p-5 space-y-4">
+                  <Field label="Document Category" required>
+                    <Select
+                      value={docTypeToUpload}
+                      onChange={(e) => setDocTypeToUpload(e.target.value)}
+                    >
+                      <option value="certificate_of_incorporation">Certificate of Incorporation</option>
+                      <option value="public_liability_insurance">Public Liability Insurance</option>
+                      <option value="product_liability_waiver">Product Liability Waiver</option>
+                      <option value="booth_build_risk_assessment">Booth Build Risk Assessment</option>
+                      <option value="electrical_certificate">Electrical Safety Certificate</option>
+                      <option value="staff_list">Staff List & ID Badges</option>
+                      <option value="sustainability_statement">Sustainability Statement</option>
+                      <option value="other">Other Compliance Document</option>
+                    </Select>
+                  </Field>
+
+                  <div className="rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50/70 p-6 text-center hover:border-brand-500 transition">
+                    <Upload className="mx-auto size-8 text-brand-600" />
+                    <p className="mt-2 text-[13px] font-bold text-slate-800">Select PDF, JPG, PNG or DOCX</p>
+                    <p className="text-[11.5px] text-slate-400">Up to 10 MB per document</p>
+
+                    <label className="mt-4 inline-flex cursor-pointer items-center gap-1.5 rounded-xl bg-brand-600 px-4 py-2 text-[12.5px] font-bold text-white shadow-sm hover:bg-brand-700 transition">
+                      <Plus className="size-4" />
+                      {uploadingDoc ? "Uploading to Server..." : "Browse & Upload File"}
+                      <input
+                        type="file"
+                        accept=".pdf,.jpg,.jpeg,.png,.docx,.doc"
+                        className="hidden"
+                        onChange={handleUploadDocument}
+                        disabled={uploadingDoc}
+                      />
+                    </label>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3 text-[12px] text-slate-600 leading-relaxed">
+                    <p className="font-bold text-slate-800 mb-1">Compliance Requirement</p>
+                    Organizers require a Certificate of Incorporation and Liability Insurance before granting access to build-up halls.
+                  </div>
+                </div>
+              </Card>
+
+              {/* Uploaded Documents List */}
+              <Card className="lg:col-span-2">
+                <CardHeader
+                  title="Compliance Documents Registry"
+                  subtitle="Live documents verified in MongoDB for your company"
+                  right={
+                    <Button
+                      size="xs"
+                      variant="ghost"
+                      icon={<RefreshCw className="size-3" />}
+                      onClick={loadDocuments}
+                      title="Refresh documents list"
+                    />
+                  }
+                />
+                <div className="divide-y divide-slate-100">
+                  {loadingDocs ? (
+                    <div className="p-8 text-center text-slate-400">
+                      <RefreshCw className="mx-auto size-8 animate-spin text-brand-600" />
+                      <p className="mt-2 text-[13px] font-medium text-slate-600">Loading compliance documents...</p>
+                    </div>
+                  ) : myDocs.length === 0 ? (
+                    <div className="p-8 text-center text-slate-400">
+                      <FileCheck2 className="mx-auto size-10 text-slate-300" />
+                      <p className="mt-2 text-[14px] font-bold text-slate-700">No documents found</p>
+                      <p className="text-[12px] text-slate-500">Upload your compliance files using the form on the left.</p>
+                    </div>
+                  ) : (
+                    myDocs.map((doc: any) => {
+                      const isVerified = doc.status === "verified";
+                      const isRejected = doc.status === "rejected";
+                      const isPending = !isVerified && !isRejected;
+                      const typeLabel = (doc.docType || "document").replace(/_/g, " ").replace(/\b\w/g, (l: string) => l.toUpperCase());
+
+                      return (
+                        <div key={doc._id} className="flex flex-wrap items-center justify-between gap-4 p-5 hover:bg-slate-50/70 transition">
+                          <div className="flex items-center gap-3.5 min-w-0 flex-1">
+                            <div className={cn(
+                              "grid size-11 shrink-0 place-items-center rounded-xl",
+                              isVerified ? "bg-emerald-50 text-emerald-600" : isRejected ? "bg-rose-50 text-rose-600" : "bg-amber-50 text-amber-600"
+                            )}>
+                              <FileCheck2 className="size-5" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-[13.5px] font-bold text-slate-900">{doc.originalName || doc.filename || "Compliance Document"}</p>
+                              <div className="mt-1 flex flex-wrap items-center gap-2 text-[11.5px] text-slate-500">
+                                <span className="rounded-md bg-slate-100 px-2 py-0.5 font-semibold text-slate-700">{typeLabel}</span>
+                                {doc.sizeBytes && <span>{(doc.sizeBytes / 1024).toFixed(0)} KB</span>}
+                                {doc.createdAt && <span>Uploaded {new Date(doc.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-3">
+                            <Badge tone={isVerified ? "success" : isRejected ? "danger" : "warn"} dot={isVerified || isPending}>
+                              {isVerified ? "Verified ✓" : isRejected ? "Rejected" : "Pending Review"}
+                            </Badge>
+
+                            <Button
+                              size="xs"
+                              variant="ghost"
+                              icon={<Trash2 className="size-3.5 text-rose-500" />}
+                              onClick={() => handleDeleteDocument(doc._id)}
+                              title="Delete document"
+                            >
+                              Delete
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </Card>
+            </div>
           </div>
         )}
 
@@ -495,22 +1710,40 @@ export default function ExhibitorPortal() {
         </div>
       </Modal>
 
-      <Modal open={editProfile} onClose={() => setEditProfile(false)} title="Edit exhibitor profile" subtitle="Your public listing in the expo directory" size="lg"
+      <Modal open={editProfile} onClose={() => setEditProfile(false)} title="Edit exhibitor profile" subtitle="Your public listing in the expo directory (connected to MongoDB)" size="lg"
         footer={<>
-          <Button variant="ghost" onClick={() => setEditProfile(false)}>Cancel</Button>
-          <Button onClick={() => { setEditProfile(false); toast({ title: "Profile updated", body: "Live in the exhibitor directory.", tone: "success" }); }}>Save profile</Button>
+          <Button variant="ghost" onClick={() => setEditProfile(false)} disabled={profileSaving}>Cancel</Button>
+          <Button onClick={handleSaveProfile} disabled={profileSaving}>
+            {profileSaving ? "Saving to MongoDB..." : "Save profile"}
+          </Button>
         </>}>
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Company name" required className="sm:col-span-2"><Input defaultValue={ME.company} /></Field>
-          <Field label="Primary contact"><Input defaultValue={ME.rep} /></Field>
-          <Field label="Contact email"><Input defaultValue="amara@nexoracloud.com" /></Field>
-          <Field label="Category"><Select defaultValue={ME.category}>{["Cloud Infrastructure", "Industrial Automation", "Medical Devices", "Renewables", "Data & AI", "Cybersecurity"].map((c) => <option key={c}>{c}</option>)}</Select></Field>
-          <Field label="Country"><Select defaultValue={ME.country}>{["United States", "Germany", "Switzerland", "Singapore"].map((c) => <option key={c}>{c}</option>)}</Select></Field>
-          <Field label="Description" className="sm:col-span-2"><Textarea defaultValue={ME.description} /></Field>
+          <Field label="Company name" required className="sm:col-span-2">
+            <Input value={companyName} onChange={(e) => setCompanyName(e.target.value)} />
+          </Field>
+          <Field label="Primary contact">
+            <Input value={repName} onChange={(e) => setRepName(e.target.value)} />
+          </Field>
+          <Field label="Contact email">
+            <Input value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} />
+          </Field>
+          <Field label="Category">
+            <Select value={category} onChange={(e) => setCategory(e.target.value)}>
+              {["Cloud Infrastructure", "Industrial Automation", "Medical Devices", "Renewables", "Data & AI", "Cybersecurity"].map((c) => <option key={c}>{c}</option>)}
+            </Select>
+          </Field>
+          <Field label="Country">
+            <Select value={country} onChange={(e) => setCountry(e.target.value)}>
+              {["United States", "Germany", "Switzerland", "Singapore"].map((c) => <option key={c}>{c}</option>)}
+            </Select>
+          </Field>
+          <Field label="Description" className="sm:col-span-2">
+            <Textarea value={description} onChange={(e) => setDescription(e.target.value)} />
+          </Field>
           <div className="sm:col-span-2">
             <p className="mb-2 text-[12.5px] font-semibold text-slate-700">Logo</p>
             <div className="flex items-center gap-3 rounded-xl border border-slate-200 p-3.5">
-              <ExhibitorLogo name={ME.company} bg={ME.logoBg} size={44} />
+              <ExhibitorLogo name={companyName} bg={ME.logoBg} size={44} />
               <div className="min-w-0 flex-1">
                 <p className="text-[12.5px] font-bold text-slate-900">nexora-logo.svg</p>
                 <p className="text-[11px] text-slate-500">SVG · 18 KB</p>
@@ -533,6 +1766,88 @@ export default function ExhibitorPortal() {
           <Field label="Permissions"><Select>{["Lead scanner, full access", "Lead scanner only", "Demo area only"].map((p) => <option key={p}>{p}</option>)}</Select></Field>
         </div>
       </Modal>
-    </div>
+
+      {/* Expo Application Modal */}
+      <Modal
+        open={!!applyExpo}
+        onClose={() => setApplyExpo(null)}
+        title={`Apply for ${applyExpo?.title || "Expo"}`}
+        subtitle={`${applyExpo?.venue || applyExpo?.city || "Venue"} · ${applyExpo?.startDate || ""} to ${applyExpo?.endDate || ""}`}
+        size="lg"
+        footer={<>
+          <Button variant="ghost" onClick={() => setApplyExpo(null)} disabled={applying}>Cancel</Button>
+          <Button loading={applying} onClick={handleApply}>Submit Application to Organizer</Button>
+        </>}
+      >
+        {applyExpo && (
+          <div className="space-y-4">
+            <div className="rounded-xl border border-brand-200 bg-brand-50/70 p-4">
+              <p className="text-[11.5px] font-bold uppercase tracking-wider text-brand-800">Applying as</p>
+              <p className="text-[15px] font-bold text-slate-900 mt-0.5">{companyName}</p>
+              <p className="text-[12px] text-slate-600 mt-0.5">Contact: {repName} ({contactEmail})</p>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Sponsorship Tier" required>
+                <Select
+                  value={applyForm.tier}
+                  onChange={(e) => setApplyForm({ ...applyForm, tier: e.target.value })}
+                >
+                  {["Platinum", "Gold", "Silver", "Bronze"].map((t) => (
+                    <option key={t}>{t}</option>
+                  ))}
+                </Select>
+              </Field>
+
+              <Field label="Preferred Hall Zone" required>
+                <Select
+                  value={applyForm.requestedZone}
+                  onChange={(e) => setApplyForm({ ...applyForm, requestedZone: e.target.value })}
+                >
+                  {["A", "B", "C", "D"].map((z) => (
+                    <option key={z} value={z}>Zone {z}</option>
+                  ))}
+                </Select>
+              </Field>
+
+              <Field label="Booth Category" required>
+                <Select
+                  value={applyForm.requestedCategory}
+                  onChange={(e) => setApplyForm({ ...applyForm, requestedCategory: e.target.value })}
+                >
+                  {["Small", "Medium", "Large", "Island"].map((c) => (
+                    <option key={c}>{c}</option>
+                  ))}
+                </Select>
+              </Field>
+
+              <Field label="Number of Booths">
+                <Select
+                  value={String(applyForm.boothQty)}
+                  onChange={(e) => setApplyForm({ ...applyForm, boothQty: Number(e.target.value) || 1 })}
+                >
+                  {[1, 2, 3, 4].map((n) => (
+                    <option key={n} value={n}>{n} {n === 1 ? "Booth" : "Booths"}</option>
+                  ))}
+                </Select>
+              </Field>
+
+              <Field label="Showcase & Exhibit Summary" required className="sm:col-span-2">
+                <Textarea
+                  value={applyForm.showcaseSummary}
+                  onChange={(e) => setApplyForm({ ...applyForm, showcaseSummary: e.target.value })}
+                  placeholder="Describe the products, solutions or demos you plan to showcase at this expo..."
+                  rows={4}
+                />
+              </Field>
+            </div>
+
+            <div className="rounded-xl bg-slate-50 p-3 text-[12px] text-slate-500">
+              Your application will be sent to the Admin / Organizer queue. Once approved, the organizer will assign your booth on the floor plan.
+            </div>
+          </div>
+        )}
+      </Modal>
+    </PortalLayout>
   );
 }

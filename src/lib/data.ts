@@ -2,7 +2,7 @@
    EventSphere — Central mock data layer (frontend only)
    ============================================================ */
 
-export type Role = "organizer" | "exhibitor" | "attendee";
+export type Role = "admin" | "organizer" | "exhibitor" | "attendee";
 
 export const MEDIA = {
   heroVideo:
@@ -55,7 +55,7 @@ export type Expo = {
   endDate: string;
   description: string;
   theme: string;
-  status: "Live" | "Upcoming" | "Completed";
+  status: "Live" | "Upcoming" | "Completed" | "Draft";
   attendees: number;
   exhibitors: number;
   sessions: number;
@@ -268,6 +268,7 @@ export const EXPOS: Expo[] = [
 /* -------------------------- Exhibitors -------------------------- */
 export type Exhibitor = {
   id: string;
+  _id?: string;
   company: string;
   logoText: string;
   logoBg: string;
@@ -288,6 +289,9 @@ export type Exhibitor = {
   revenue: number;
   description: string;
   badgeTier: "Platinum" | "Gold" | "Silver" | "Bronze";
+  tier?: string;
+  email?: string;
+  leads?: number;
 };
 
 export const EXHIBITORS: Exhibitor[] = [
@@ -322,6 +326,11 @@ export type Session = {
   rating: number;
   bookmarked?: boolean;
   tags: string[];
+  expoId?: string;
+  time?: string;
+  role?: string;
+  company?: string;
+  description?: string;
 };
 
 export const SESSIONS: Session[] = [
@@ -340,6 +349,7 @@ export const SESSIONS: Session[] = [
 /* -------------------------- Booths / Floor -------------------------- */
 export type Booth = {
   id: string;
+  _id?: string;
   zone: "A" | "B" | "C" | "D";
   size: "Small" | "Medium" | "Large" | "Island";
   sqm: number;
@@ -454,8 +464,8 @@ export const SESSION_POPULARITY = [
 ];
 
 export const REGISTRATION_SPLIT = [
-  { label: "Attendee", value: 68, color: "#6366f1" },
-  { label: "Exhibitor", value: 19, color: "#06b6d4" },
+  { label: "Attendee", value: 68, color: "#6854d9" },
+  { label: "Exhibitor", value: 19, color: "#0ea5e9" },
   { label: "Press", value: 7, color: "#f97316" },
   { label: "VIP / Speaker", value: 6, color: "#a855f7" },
 ];

@@ -31,15 +31,15 @@ export function Button({
   };
   const variants = {
     primary:
-      "bg-gradient-to-b from-brand-500 to-brand-600 text-white shadow-[0_1px_0_rgba(255,255,255,.18)_inset,0_10px_28px_-10px_rgba(79,70,229,.75)] hover:from-brand-400 hover:to-brand-600 active:translate-y-px",
+      "bg-gradient-to-b from-brand-500 to-brand-600 text-white shadow-[0_1px_0_rgb(255_255_255/.16)_inset,0_1px_2px_rgb(23_28_53/.08),0_6px_16px_-6px_rgb(104_84_217/.5)] hover:from-brand-400 hover:to-brand-600 active:translate-y-px",
     secondary:
-      "bg-white text-slate-900 border border-slate-200 shadow-sm hover:border-slate-300 hover:bg-slate-50 active:translate-y-px",
+      "bg-white text-slate-800 border border-slate-200 shadow-[0_1px_2px_rgb(23_28_53/.05)] hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 active:translate-y-px",
     outline:
-      "border border-white/25 text-white bg-white/5 backdrop-blur hover:bg-white/12 hover:border-white/40 active:translate-y-px",
-    ghost: "text-slate-600 hover:text-slate-900 hover:bg-slate-100/80",
-    dark: "bg-ink-900 text-white hover:bg-ink-800 shadow-sm active:translate-y-px",
-    danger: "bg-rose-600 text-white hover:bg-rose-500 shadow-sm active:translate-y-px",
-    soft: "bg-brand-50 text-brand-700 hover:bg-brand-100 border border-brand-100",
+      "border border-white/25 text-white bg-white/[0.06] backdrop-blur hover:bg-white/[0.14] hover:border-white/40 active:translate-y-px",
+    ghost: "text-slate-600 hover:text-slate-900 hover:bg-slate-100",
+    dark: "bg-ink-900 text-white shadow-[0_1px_2px_rgb(23_28_53/.2)] hover:bg-ink-800 active:translate-y-px",
+    danger: "bg-rose-600 text-white shadow-[0_1px_2px_rgb(224_82_82/.3)] hover:bg-rose-500 active:translate-y-px",
+    soft: "bg-brand-50 text-brand-700 border border-brand-100 hover:bg-brand-100 hover:border-brand-200",
   };
   return (
     <button
@@ -69,7 +69,7 @@ export function Card({
   return (
     <div
       className={cn(
-        "relative rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)]",
+        "relative rounded-2xl border border-slate-200/90 bg-white shadow-[0_1px_2px_rgb(23_28_53/.04),0_1px_3px_rgb(23_28_53/.05)]",
         hover && "card-hover",
         className
       )}
@@ -91,10 +91,10 @@ export const CardHeader = ({
   right?: React.ReactNode;
   className?: string;
 }) => (
-  <div className={cn("flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 px-5 py-4", className)}>
+  <div className={cn("flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 px-5 py-4.5", className)}>
     <div className="min-w-0">
-      <h3 className="font-display text-[15px] font-semibold tracking-tight text-slate-900">{title}</h3>
-      {subtitle && <p className="mt-0.5 text-[12.5px] text-slate-500">{subtitle}</p>}
+      <h3 className="font-display text-[15px] font-semibold tracking-[-0.02em] text-slate-900">{title}</h3>
+      {subtitle && <p className="mt-1 text-[12.5px] leading-snug text-slate-500">{subtitle}</p>}
     </div>
     {right}
   </div>
@@ -102,13 +102,13 @@ export const CardHeader = ({
 
 /* -------------------------------- Badge ------------------------------- */
 const badgeTones: Record<string, string> = {
-  neutral: "bg-slate-100 text-slate-700 ring-slate-200",
-  brand: "bg-brand-50 text-brand-700 ring-brand-200",
-  success: "bg-emerald-50 text-emerald-700 ring-emerald-200",
-  warn: "bg-amber-50 text-amber-700 ring-amber-200",
-  danger: "bg-rose-50 text-rose-700 ring-rose-200",
-  info: "bg-cyan-50 text-cyan-700 ring-cyan-200",
-  purple: "bg-purple-50 text-purple-700 ring-purple-200",
+  neutral: "bg-slate-50 text-slate-600 ring-slate-200",
+  brand: "bg-brand-50 text-brand-700 ring-brand-200/80",
+  success: "bg-emerald-50 text-emerald-700 ring-emerald-200/80",
+  warn: "bg-amber-50 text-amber-700 ring-amber-200/80",
+  danger: "bg-rose-50 text-rose-700 ring-rose-200/80",
+  info: "bg-aqua-500/8 text-aqua-600 ring-aqua-500/20",
+  purple: "bg-purple-50 text-purple-700 ring-purple-200/80",
   dark: "bg-ink-900 text-white ring-ink-900",
 };
 
@@ -126,7 +126,7 @@ export function Badge({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold tracking-wide ring-1 ring-inset",
+        "inline-flex items-center gap-1.5 rounded-md px-2 py-[3px] text-[10.5px] font-semibold tracking-[0.01em] ring-1 ring-inset",
         badgeTones[tone] ?? badgeTones.neutral,
         className
       )}
@@ -173,12 +173,25 @@ export function Field({
 const inputBase =
   "w-full rounded-xl border border-slate-200 bg-white px-3.5 text-[14px] text-slate-900 placeholder:text-slate-400 shadow-[0_1px_2px_rgba(16,24,40,.04)] transition outline-none focus:border-brand-400 focus:ring-4 focus:ring-brand-500/12";
 
-export const Input = ({ className, ...p }: React.InputHTMLAttributes<HTMLInputElement>) => (
-  <input className={cn(inputBase, "h-11", className)} {...p} />
+export const Input = ({ className, isInvalid, ...p }: React.InputHTMLAttributes<HTMLInputElement> & { isInvalid?: boolean }) => (
+  <input
+    className={cn(inputBase, "h-11", isInvalid && "border-rose-300 focus:border-rose-400 focus:ring-rose-500/12", className)}
+    aria-invalid={isInvalid || undefined}
+    {...p}
+  />
 );
 
-export const Textarea = ({ className, ...p }: React.TextareaHTMLAttributes<HTMLTextAreaElement>) => (
-  <textarea className={cn(inputBase, "min-h-[104px] py-3 leading-relaxed", className)} {...p} />
+export const Textarea = ({ className, isInvalid, ...p }: React.TextareaHTMLAttributes<HTMLTextAreaElement> & { isInvalid?: boolean }) => (
+  <textarea
+    className={cn(
+      inputBase,
+      "min-h-[104px] py-3 leading-relaxed",
+      isInvalid && "border-rose-300 focus:border-rose-400 focus:ring-rose-500/12",
+      className
+    )}
+    aria-invalid={isInvalid || undefined}
+    {...p}
+  />
 );
 
 export const Select = ({ className, children, ...p }: React.SelectHTMLAttributes<HTMLSelectElement>) => (
@@ -347,7 +360,7 @@ export function Progress({
 }: {
   value: number;
   className?: string;
-  tone?: "brand" | "success" | "warn" | "danger" | "info";
+  tone?: "brand" | "success" | "warn" | "danger" | "info" | "purple";
   height?: number;
 }) {
   const tones = {
@@ -355,7 +368,8 @@ export function Progress({
     success: "from-emerald-500 to-emerald-400",
     warn: "from-amber-500 to-amber-400",
     danger: "from-rose-500 to-rose-400",
-    info: "from-cyan-500 to-aqua-400",
+    info: "from-aqua-500 to-aqua-400",
+    purple: "from-fuchsia-500 to-purple-500",
   };
   return (
     <div className={cn("w-full overflow-hidden rounded-full bg-slate-100", className)} style={{ height }}>
@@ -415,7 +429,7 @@ export function Table({ children, className }: { children: React.ReactNode; clas
 export const Th = ({ children, className }: { children?: React.ReactNode; className?: string }) => (
   <th
     className={cn(
-      "sticky top-0 z-1 whitespace-nowrap border-b border-slate-200 bg-slate-50/90 px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-slate-500 backdrop-blur",
+      "sticky top-0 z-1 whitespace-nowrap border-b border-slate-200 bg-slate-50/95 px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-slate-500 backdrop-blur",
       className
     )}
   >
@@ -423,7 +437,7 @@ export const Th = ({ children, className }: { children?: React.ReactNode; classN
   </th>
 );
 export const Td = ({ children, className }: { children?: React.ReactNode; className?: string }) => (
-  <td className={cn("border-b border-slate-100 px-4 py-3.5 align-middle text-slate-700", className)}>{children}</td>
+  <td className={cn("border-b border-slate-100 px-4 py-3 align-middle text-[13px] text-slate-700", className)}>{children}</td>
 );
 
 /* ------------------------------ Reveal -------------------------------- */
@@ -560,25 +574,29 @@ export function SectionHeading({
   return (
     <div className={cn(center && "mx-auto text-center", "max-w-2xl", className)}>
       {eyebrow && (
-        <div
+        <span
           className={cn(
-            "inline-flex items-center gap-2 rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-[0.14em]",
-            light ? "bg-white/10 text-brand-200 ring-1 ring-white/15" : "bg-brand-50 text-brand-700 ring-1 ring-brand-100"
+            "eyebrow",
+            light ? "bg-white/[0.07] text-brand-200 ring-1 ring-white/10" : "bg-brand-50 text-brand-700 ring-1 ring-brand-100"
           )}
         >
-          <span className="size-1.5 rounded-full bg-current" />
+          <span className="size-1 rounded-full bg-current opacity-70" />
           {eyebrow}
-        </div>
+        </span>
       )}
       <h2
         className={cn(
-          "mt-4 font-display text-[26px] font-bold leading-[1.15] tracking-[-0.02em] sm:text-[34px]",
+          "mt-4 font-display text-[28px] font-bold leading-[1.16] tracking-[-0.035em] sm:text-[36px]",
           light ? "text-white" : "text-slate-900"
         )}
       >
         {title}
       </h2>
-      {body && <p className={cn("mt-3.5 text-[15px] leading-relaxed", light ? "text-slate-300/90" : "text-slate-600")}>{body}</p>}
+      {body && (
+        <p className={cn("mt-4 max-w-xl text-[14.5px] leading-[1.8]", center && "mx-auto", light ? "text-slate-300/80" : "text-slate-600")}>
+          {body}
+        </p>
+      )}
     </div>
   );
 }

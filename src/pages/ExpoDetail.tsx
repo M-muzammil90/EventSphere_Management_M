@@ -1,11 +1,12 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { EXPOS, EXHIBITORS, SESSIONS, TESTIMONIALS } from "@/lib/data";
+import { EXPOS, EXHIBITORS, SESSIONS, TESTIMONIALS, type Expo, type Exhibitor } from "@/lib/data";
 import { Badge, Button, Card, CardHeader, EmptyState, Modal, Reveal, Tabs, Field, Textarea } from "@/components/ui";
 import { FloorPlan, ExhibitorLogo, SessionCard } from "@/components/shared";
 import { Shell } from "@/components/SiteLayout";
 import { AreaChart, Donut, Gauge, Sparkline } from "@/components/charts";
 import { fmt, money, useStore } from "@/lib/store";
+import { fetchLiveExpos, createLiveOrder, fetchExpoApprovedExhibitors } from "@/lib/liveApi";
 import { cn } from "@/utils/cn";
 import {
   ArrowLeft,
@@ -29,12 +30,23 @@ import {
 export default function ExpoDetail() {
   const { slug } = useParams();
   const nav = useNavigate();
-  const { toast } = useStore();
-  const expo = EXPOS.find((e) => e.slug === slug);
+  const { user, toast } = useStore();
+  const [liveExpos, setLiveExpos] = useState<Expo[]>(EXPOS);
   const [tab, setTab] = useState("overview");
   const [reg, setReg] = useState(false);
+  const [selectedTicket, setSelectedTicket] = useState("Day Pass");
+  const [ticketQty, setTicketQty] = useState(1);
+  const [bookingPass, setBookingPass] = useState(false);
   const [contact, setContact] = useState<string | null>(null);
   const [q, setQ] = useState("");
+
+  useEffect(() => {
+    fetchLiveExpos().then((data) => {
+      if (data && data.length > 0) setLiveExpos(data);
+    });
+  }, []);
+
+  const expo = liveExpos.find((e) => e.slug === slug || e.id === slug) ?? liveExpos[0];
 
   if (!expo)
     return (
@@ -51,7 +63,21 @@ export default function ExpoDetail() {
     );
 
   const sold = Math.round((expo.boothsSold / expo.boothsTotal) * 100);
-  const exhibitors = useMemo(() => EXHIBITORS.filter((e) => e.status === "Approved"), []);
+  const [liveExhibitors, setLiveExhibitors] = useState<Exhibitor[]>([]);
+
+  useEffect(() => {
+    if (expo?.id) {
+      fetchExpoApprovedExhibitors(expo.id).then((data) => {
+        if (data && data.length > 0) setLiveExhibitors(data);
+      });
+    }
+  }, [expo?.id]);
+
+  const exhibitors = useMemo(() => {
+    if (liveExhibitors.length > 0) return liveExhibitors;
+    return EXHIBITORS.filter((e) => e.status === "Approved");
+  }, [liveExhibitors]);
+
   const filtered = exhibitors.filter((e) => !q || `${e.company} ${e.category} ${e.products.join(" ")}`.toLowerCase().includes(q.toLowerCase()));
   const days = Array.from(new Set(SESSIONS.map((s) => s.day)));
 
@@ -59,7 +85,15 @@ export default function ExpoDetail() {
     <Shell>
       {/* HERO */}
       <section className="relative isolate overflow-hidden bg-ink-950 pb-14 pt-10">
-        <img src={expo.cover} alt="" className="absolute inset-0 -z-10 size-full object-cover opacity-40" />
+        <img
+          src={expo.cover}
+          alt=""
+          className="absolute inset-0 -z-10 size-full object-cover opacity-40"
+          onError={(ev) => {
+            (ev.target as HTMLImageElement).src =
+              "https://images.pexels.com/photos/38041486/pexels-photo-38041486.jpeg?auto=compress&cs=tinysrgb&fit=crop&h=627&w=1200";
+          }}
+        />
         <div className="absolute inset-0 -z-10 bg-gradient-to-t from-ink-950 via-ink-950/85 to-ink-950/60" />
         <div className="pointer-events-none absolute inset-0 -z-10 grid-noise-dark opacity-50" />
 
@@ -113,6 +147,11 @@ export default function ExpoDetail() {
                 <Button size="lg" icon={<Ticket className="size-4.5" />} onClick={() => setReg(true)}>
                   Register — ${expo.price}
                 </Button>
+                <Link to="/portal">
+                  <Button size="lg" variant="secondary" icon={<Building2 className="size-4.5" />}>
+                    Apply as Exhibitor
+                  </Button>
+                </Link>
                 <Button size="lg" variant="outline" icon={<Share2 className="size-4" />} onClick={() => toast({ title: "Link copied to clipboard", tone: "success" })}>
                   Share
                 </Button>
@@ -134,8 +173,8 @@ export default function ExpoDetail() {
                 <div className="space-y-4 p-5">
                   <div className="grid grid-cols-2 gap-3">
                     {[
-                      { l: "On floor", v: "9,310", s: [12, 18, 15, 22, 19, 27, 31], c: "#22d3ee", d: "+18.4%" },
-                      { l: "Sessions live", v: "6 / 44", s: [2, 3, 2, 4, 3, 5, 6], c: "#818cf8", d: "+2 today" },
+                      { l: "On floor", v: "9,310", s: [12, 18, 15, 22, 19, 27, 31], c: "#38bdf8", d: "+18.4%" },
+                      { l: "Sessions live", v: "6 / 44", s: [2, 3, 2, 4, 3, 5, 6], c: "#8b72ee", d: "+2 today" },
                     ].map((k) => (
                       <div key={k.l} className="rounded-2xl border border-white/10 bg-white/[0.04] p-3.5">
                         <p className="text-[10.5px] font-bold uppercase tracking-wider text-white/45">{k.l}</p>
@@ -346,7 +385,7 @@ export default function ExpoDetail() {
                       </div>
                       <p className="mt-3.5 line-clamp-2 text-[12.5px] leading-relaxed text-slate-600">{x.description}</p>
                       <div className="mt-3 flex flex-wrap gap-1.5">
-                        {x.products.map((p) => (
+                        {x.products.map((p: any) => (
                           <span key={p} className="rounded-md bg-slate-100 px-2 py-0.5 text-[10.5px] font-semibold text-slate-600">{p}</span>
                         ))}
                       </div>
@@ -398,7 +437,7 @@ export default function ExpoDetail() {
                   Print plan
                 </Button>
               </div>
-              <FloorPlan mode="view" />
+              <FloorPlan mode="view" expoId={expo.id} />
             </div>
           )}
 
@@ -419,8 +458,8 @@ export default function ExpoDetail() {
                       centerLabel="of badges"
                       centerValue="100%"
                       data={[
-                        { label: "Attendee", value: 68, color: "#6366f1" },
-                        { label: "Exhibitor", value: 19, color: "#06b6d4" },
+                        { label: "Attendee", value: 68, color: "#6854d9" },
+                        { label: "Exhibitor", value: 19, color: "#0ea5e9" },
                         { label: "Press", value: 7, color: "#f97316" },
                         { label: "VIP", value: 6, color: "#a855f7" },
                       ]}
@@ -441,7 +480,7 @@ export default function ExpoDetail() {
                       <Gauge
                         value={g.v}
                         size={140}
-                        color={g.tone === "success" ? "#10b981" : g.tone === "info" ? "#06b6d4" : g.tone === "purple" ? "#a855f7" : "#4f46e5"}
+                        color={g.tone === "success" ? "#10b981" : g.tone === "info" ? "#0ea5e9" : g.tone === "purple" ? "#a855f7" : "#5947c6"}
                       />
                     </div>
                     <p className="mt-1 text-center text-[11.5px] text-slate-500">{g.s}</p>
@@ -461,9 +500,60 @@ export default function ExpoDetail() {
         subtitle="Select your pass type and confirm your details"
         footer={
           <>
-            <Button variant="ghost" onClick={() => setReg(false)}>Cancel</Button>
-            <Button onClick={() => { setReg(false); toast({ title: "Registration confirmed 🎉", body: `Your e-Badge for ${expo.title} is in your inbox.`, tone: "success" }); }}>
-              Confirm registration
+            <Button variant="ghost" onClick={() => setReg(false)} disabled={bookingPass}>
+              Cancel
+            </Button>
+            <Button
+              onClick={async () => {
+                if (!user) {
+                  localStorage.setItem(
+                    "eventsphere_pending_booking",
+                    JSON.stringify({
+                      expoId: expo.id && expo.id.length === 24 ? expo.id : "6b0001fbc32ac2ad55711ad7",
+                      expoSlug: expo.slug,
+                      ticketType: selectedTicket,
+                      quantity: ticketQty,
+                    })
+                  );
+                  toast({
+                    title: "Authentication Required",
+                    body: "Please sign in or register to complete your ticket booking.",
+                    tone: "info",
+                  });
+                  nav(`/login?redirect=/expos/${expo.slug}&role=attendee`);
+                  return;
+                }
+
+                setBookingPass(true);
+                try {
+                  const targetExpoId = expo.id && expo.id.length === 24 ? expo.id : "6b0001fbc32ac2ad55711ad7";
+                  await createLiveOrder({
+                    orderType: "ticket_registration",
+                    expoId: targetExpoId,
+                    ticketType: selectedTicket,
+                    quantity: ticketQty,
+                  });
+
+                  setReg(false);
+                  toast({
+                    title: "Registration Confirmed in MongoDB 🎉",
+                    body: `Your ticket for ${expo.title} has been confirmed.`,
+                    tone: "success",
+                  });
+                  nav("/attendee");
+                } catch (err: any) {
+                  toast({
+                    title: "Booking Failed",
+                    body: err.message || "Failed to create registration order.",
+                    tone: "danger",
+                  });
+                } finally {
+                  setBookingPass(false);
+                }
+              }}
+              disabled={bookingPass}
+            >
+              {bookingPass ? "Processing..." : "Proceed to Checkout"}
             </Button>
           </>
         }
@@ -473,9 +563,18 @@ export default function ExpoDetail() {
             {[
               { n: "Day Pass", p: expo.price },
               { n: "Full Pass", p: 349, best: true },
-              { n: "Exhibitor", p: 2600 },
+              { n: "VIP", p: 850 },
             ].map((t) => (
-              <div key={t.n} className={cn("rounded-2xl border-2 p-4 transition", t.best ? "border-brand-500 bg-brand-50/50" : "border-slate-200 hover:border-slate-300")}>
+              <div
+                key={t.n}
+                onClick={() => setSelectedTicket(t.n)}
+                className={cn(
+                  "cursor-pointer rounded-2xl border-2 p-4 transition",
+                  selectedTicket === t.n
+                    ? "border-brand-500 bg-brand-50/50 shadow-sm"
+                    : "border-slate-200 hover:border-slate-300"
+                )}
+              >
                 {t.best && <Badge tone="brand" className="mb-2">Most popular</Badge>}
                 <p className="text-[12.5px] font-bold text-slate-900">{t.n}</p>
                 <p className="mt-1 font-display text-[22px] font-extrabold text-slate-900">${t.p}</p>
@@ -483,18 +582,46 @@ export default function ExpoDetail() {
               </div>
             ))}
           </div>
+
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Full name" required><input className="h-11 w-full rounded-xl border border-slate-200 px-3.5 text-[14px] outline-none focus:border-brand-400 focus:ring-4 focus:ring-brand-500/12" placeholder="Jane Cooper" /></Field>
-            <Field label="Email" required><input className="h-11 w-full rounded-xl border border-slate-200 px-3.5 text-[14px] outline-none focus:border-brand-400 focus:ring-4 focus:ring-brand-500/12" placeholder="jane@company.com" /></Field>
-            <Field label="Company"><input className="h-11 w-full rounded-xl border border-slate-200 px-3.5 text-[14px] outline-none focus:border-brand-400 focus:ring-4 focus:ring-brand-500/12" placeholder="Acme Inc." /></Field>
-            <Field label="Job title"><input className="h-11 w-full rounded-xl border border-slate-200 px-3.5 text-[14px] outline-none focus:border-brand-400 focus:ring-4 focus:ring-brand-500/12" placeholder="Product Manager" /></Field>
+            <Field label="Full name" required>
+              <input
+                className="h-11 w-full rounded-xl border border-slate-200 px-3.5 text-[14px] outline-none focus:border-brand-400 focus:ring-4 focus:ring-brand-500/12"
+                defaultValue={user?.name || "Attendee Guest"}
+              />
+            </Field>
+            <Field label="Email" required>
+              <input
+                className="h-11 w-full rounded-xl border border-slate-200 px-3.5 text-[14px] outline-none focus:border-brand-400 focus:ring-4 focus:ring-brand-500/12"
+                defaultValue={user?.email || "attendee@example.com"}
+              />
+            </Field>
+            <Field label="Company">
+              <input
+                className="h-11 w-full rounded-xl border border-slate-200 px-3.5 text-[14px] outline-none focus:border-brand-400 focus:ring-4 focus:ring-brand-500/12"
+                defaultValue={user?.company || "Tech Innovators"}
+              />
+            </Field>
+            <Field label="Quantity">
+              <select
+                value={ticketQty}
+                onChange={(e) => setTicketQty(Number(e.target.value))}
+                className="h-11 w-full rounded-xl border border-slate-200 px-3.5 text-[14px] outline-none focus:border-brand-400 focus:ring-4 focus:ring-brand-500/12 bg-white"
+              >
+                {[1, 2, 3, 4, 5].map((q) => (
+                  <option key={q} value={q}>
+                    {q} Pass{q > 1 ? "es" : ""}
+                  </option>
+                ))}
+              </select>
+            </Field>
           </div>
           <div className="flex items-center justify-between rounded-xl bg-slate-50 p-4">
             <div>
-              <p className="text-[13px] font-bold text-slate-900">Add workshop access</p>
-              <p className="text-[11.5px] text-slate-500">3 hands-on labs, +$120</p>
+              <p className="text-[13px] font-bold text-slate-900">Total payable calculated server-side</p>
+              <p className="text-[11.5px] text-slate-500">Secure 256-bit SSL encryption & official tax invoice included</p>
             </div>
-            <span className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-bold text-slate-600">Add</span>
+            <Badge tone="brand">Official Booking</Badge>
           </div>
         </div>
       </Modal>

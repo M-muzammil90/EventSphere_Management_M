@@ -1,9 +1,11 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { cn } from "@/utils/cn";
 import { BOOTHS, type Booth, type Expo, type Session } from "@/lib/data";
 import { Badge, Button, Card, Progress } from "@/components/ui";
 import { fmt, money, useStore } from "@/lib/store";
 import { Link } from "react-router-dom";
+import { fetchLiveBooths } from "@/lib/liveApi";
+import { getSocket } from "@/lib/socket";
 import {
   ArrowRight,
   Bookmark,
@@ -31,27 +33,87 @@ export function FloorPlan({
   selected,
   onSelect,
   height = 520,
+  expoId,
+  booths: initialBooths,
+  onBoothsLoaded,
 }: {
   mode?: "view" | "select" | "admin";
   selected?: string | null;
   onSelect?: (id: string | null) => void;
   height?: number;
+  expoId?: string;
+  booths?: Booth[];
+  onBoothsLoaded?: (booths: Booth[]) => void;
 }) {
   const [hover, setHover] = useState<Booth | null>(null);
   const [filter, setFilter] = useState<"all" | "available" | "sold">("all");
+  const [liveBooths, setLiveBooths] = useState<Booth[]>(initialBooths || BOOTHS);
+  const [_loading, setLoading] = useState(!initialBooths);
 
-  const booths = useMemo(
-    () => BOOTHS.filter((b) => (filter === "all" ? true : filter === "available" ? b.status === "available" : b.status !== "available")),
-    [filter]
+  const targetExpoId = expoId || "6b0001fbc32ac2ad55711ad7"; // Global Tech Summit default
+
+  const loadLiveFloorPlan = async () => {
+    try {
+      const data = await fetchLiveBooths(targetExpoId);
+      if (data && data.length > 0) {
+        setLiveBooths(data);
+        onBoothsLoaded?.(data);
+      }
+    } catch (err) {
+      console.warn("Floor plan live load error, keeping current booths:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (initialBooths && initialBooths.length > 0) {
+      setLiveBooths(initialBooths);
+      setLoading(false);
+      return;
+    }
+    loadLiveFloorPlan();
+  }, [initialBooths, targetExpoId]);
+
+  // Real-time synchronization: listen for booth changes from admin, payments, reservations
+  useEffect(() => {
+    const socket = getSocket();
+    if (!socket) return;
+
+    const handleBoothUpdated = () => {
+      loadLiveFloorPlan();
+    };
+
+    socket.on("booth:updated", handleBoothUpdated);
+    socket.on("booth:reserved", handleBoothUpdated);
+    socket.on("booth:booked", handleBoothUpdated);
+
+    return () => {
+      socket.off("booth:updated", handleBoothUpdated);
+      socket.off("booth:reserved", handleBoothUpdated);
+      socket.off("booth:booked", handleBoothUpdated);
+    };
+  }, [targetExpoId]);
+
+  const displayedBooths = useMemo(
+    () =>
+      liveBooths.filter((b) =>
+        filter === "all" ? true : filter === "available" ? b.status === "available" : b.status !== "available"
+      ),
+    [liveBooths, filter]
   );
 
   const legend = [
     { l: "Available", c: "bg-white border-slate-300" },
-    { l: "Sold", c: "bg-indigo-500 border-indigo-500" },
+    { l: "Sold / Booked", c: "bg-indigo-500 border-indigo-500" },
     { l: "Reserved", c: "bg-amber-400 border-amber-400" },
     { l: "Blocked", c: "bg-slate-300 border-slate-300" },
     { l: "Selected", c: "bg-brand-600 border-brand-700 ring-2 ring-brand-300" },
   ];
+
+  const active = hover || (selected ? liveBooths.find((b) => b.id === selected) : null);
+
+  const availableCount = liveBooths.filter((b) => b.status === "available").length;
 
   return (
     <div className="grid gap-5 lg:grid-cols-[1fr_286px]">
@@ -62,8 +124,13 @@ export function FloorPlan({
               <MapPin className="size-4" />
             </span>
             <div>
-              <p className="text-[13px] font-bold text-slate-900">Hall 4 — Interactive Floor Plan</p>
-              <p className="text-[11px] text-slate-500">Drag to pan · scroll to zoom · click a booth</p>
+              <div className="flex items-center gap-2">
+                <p className="text-[13px] font-bold text-slate-900">Hall 4 — Interactive Floor Plan</p>
+                <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wider text-emerald-700">
+                  <span className="size-1.5 animate-pulse rounded-full bg-emerald-500" /> Database Live
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-500">Live MongoDB sync · Click a booth to view details or reserve</p>
             </div>
           </div>
           <div className="flex gap-1 rounded-lg bg-slate-100 p-1">
@@ -106,7 +173,7 @@ export function FloorPlan({
                       <span className="text-[10.5px] font-bold uppercase tracking-wider text-slate-400">Zone {z}</span>
                     </div>
                     <div className="space-y-1.5">
-                      {booths
+                      {displayedBooths
                         .filter((b) => b.zone === z)
                         .map((b) => {
                           const isSel = selected === b.id;
@@ -180,8 +247,8 @@ export function FloorPlan({
               {l.l}
             </span>
           ))}
-          <span className="ml-auto text-[11.5px] font-semibold text-slate-400">
-            {BOOTHS.filter((b) => b.status === "available").length} of {BOOTHS.length} booths available
+          <span className="ml-auto text-[11.5px] font-semibold text-slate-500">
+            <strong className="text-slate-900">{availableCount}</strong> of {liveBooths.length} booths available (MongoDB Live)
           </span>
         </div>
       </Card>
@@ -189,51 +256,58 @@ export function FloorPlan({
       {/* detail rail */}
       <div className="space-y-4">
         <Card className="p-4">
-          {hover ? (
+          {active ? (
             <>
               <div className="flex items-center justify-between">
-                <span className="font-display text-[20px] font-bold text-slate-900">Booth {hover.id}</span>
+                <span className="font-display text-[20px] font-bold text-slate-900">Booth {active.id}</span>
                 <Badge
-                  tone={hover.status === "available" ? "success" : hover.status === "sold" ? "brand" : hover.status === "reserved" ? "warn" : "neutral"}
+                  tone={
+                    active.status === "available"
+                      ? "success"
+                      : active.status === "sold"
+                      ? "brand"
+                      : active.status === "reserved"
+                      ? "warn"
+                      : "neutral"
+                  }
                 >
-                  {hover.status}
+                  {active.status === "sold" ? "Booked" : active.status}
                 </Badge>
               </div>
-              <p className="mt-1 text-[12px] font-medium text-slate-500">Zone {hover.zone} · Hall 4</p>
-              {hover.owner ? (
-                <div className="mt-3 flex items-center gap-2.5 rounded-xl bg-slate-50 p-2.5">
+              <p className="mt-1 text-[12px] font-medium text-slate-500">Zone {active.zone} · Hall 4</p>
+              {active.owner ? (
+                <div className="mt-3 flex items-center gap-2.5 rounded-xl bg-slate-50 p-2.5 border border-slate-100">
                   <span className="grid size-8 place-items-center rounded-lg bg-brand-100 text-[11px] font-bold text-brand-700">
-                    {hover.owner.split(" ").map((w) => w[0]).slice(0, 2).join("")}
+                    {active.owner.split(" ").map((w) => w[0]).slice(0, 2).join("")}
                   </span>
                   <div className="min-w-0">
-                    <p className="truncate text-[12.5px] font-bold text-slate-900">{hover.owner}</p>
-                    <p className="text-[11px] text-slate-500">{hover.size} booth</p>
+                    <p className="truncate text-[12.5px] font-bold text-slate-900">{active.owner}</p>
+                    <p className="text-[11px] text-slate-500">{active.size} booth · Allocated in MongoDB</p>
                   </div>
                 </div>
-              ) : (
-                <div className="mt-3 space-y-2.5">
-                  {[
-                    ["Size", `${hover.sqm} sqm · ${hover.size}`],
-                    ["Rate", money(hover.price)],
-                    ["Dimensions", `${Math.round(hover.sqm / 3)}m × 3m`],
-                    ["Includes", "Power · Wi-Fi · 1 table"],
-                  ].map(([l, v]) => (
-                    <div key={l} className="flex justify-between text-[12.5px]">
-                      <span className="text-slate-500">{l}</span>
-                      <span className="font-bold text-slate-900">{v}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {mode !== "view" && hover.status === "available" && (
+              ) : null}
+              <div className="mt-3 space-y-2.5">
+                {[
+                  ["Size", `${active.sqm} sqm · ${active.size}`],
+                  ["Live Rate", money(active.price)],
+                  ["Dimensions", `${Math.round(active.sqm / 3)}m × 3m`],
+                  ["Includes", "3-phase Power · High-speed Wi-Fi · Rigging points"],
+                ].map(([l, v]) => (
+                  <div key={l} className="flex justify-between text-[12.5px]">
+                    <span className="text-slate-500">{l}</span>
+                    <span className="font-bold text-slate-900">{v}</span>
+                  </div>
+                ))}
+              </div>
+              {mode !== "view" && active.status === "available" && (
                 <Button
                   full
                   size="sm"
                   className="mt-4"
-                  variant={selected === hover.id ? "secondary" : "primary"}
-                  onClick={() => onSelect?.(selected === hover.id ? null : hover.id)}
+                  variant={selected === active.id ? "secondary" : "primary"}
+                  onClick={() => onSelect?.(selected === active.id ? null : active.id)}
                 >
-                  {selected === hover.id ? "Selected — confirm below" : "Select this booth"}
+                  {selected === active.id ? "Selected — proceed below" : "Select this booth"}
                 </Button>
               )}
             </>
@@ -242,17 +316,17 @@ export function FloorPlan({
               <div className="mx-auto grid size-12 place-items-center rounded-2xl bg-slate-100 text-slate-400">
                 <MapPin className="size-5" />
               </div>
-              <p className="mt-3 text-[13px] font-bold text-slate-800">Hover a booth</p>
-              <p className="mt-1 text-[12px] text-slate-500">Live availability, size and pricing appear here.</p>
+              <p className="mt-3 text-[13px] font-bold text-slate-800">Hover or click a booth</p>
+              <p className="mt-1 text-[12px] text-slate-500">Live availability, admin allocation, size and pricing appear here.</p>
             </div>
           )}
         </Card>
 
         <Card className="p-4">
-          <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Zone summary</p>
+          <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Zone occupancy (Database)</p>
           <div className="mt-3 space-y-2.5">
             {(["A", "B", "C", "D"] as const).map((z) => {
-              const all = BOOTHS.filter((b) => b.zone === z);
+              const all = liveBooths.filter((b) => b.zone === z);
               const sold = all.filter((b) => b.status !== "available").length;
               return (
                 <div key={z}>
@@ -261,10 +335,14 @@ export function FloorPlan({
                       <span className={cn("size-2 rounded-full", ZONE_COLORS[z].bg)} /> Zone {z}
                     </span>
                     <span className="font-bold text-slate-900">
-                      {sold}/{all.length}
+                      {sold}/{all.length || 1}
                     </span>
                   </div>
-                  <Progress value={(sold / all.length) * 100} tone={z === "A" ? "brand" : z === "B" ? "info" : z === "C" ? "warn" : "success"} height={5} />
+                  <Progress
+                    value={all.length ? (sold / all.length) * 100 : 0}
+                    tone={z === "A" ? "brand" : z === "B" ? "info" : z === "C" ? "warn" : "success"}
+                    height={5}
+                  />
                 </div>
               );
             })}
@@ -294,23 +372,27 @@ export function StatCard({
   spark?: React.ReactNode;
 }) {
   const tones = {
-    brand: "from-brand-500 to-violet-500 shadow-brand-500/25",
-    success: "from-emerald-500 to-teal-500 shadow-emerald-500/25",
-    warn: "from-amber-400 to-flame-500 shadow-amber-500/25",
-    info: "from-cyan-500 to-aqua-500 shadow-cyan-500/25",
-    purple: "from-fuchsia-500 to-purple-600 shadow-fuchsia-500/25",
+    brand: "bg-brand-50 text-brand-600 ring-brand-100",
+    success: "bg-emerald-50 text-emerald-600 ring-emerald-100",
+    warn: "bg-amber-50 text-amber-600 ring-amber-100",
+    info: "bg-aqua-500/10 text-aqua-600 ring-aqua-500/20",
+    purple: "bg-purple-50 text-purple-600 ring-purple-100",
   };
   const up = delta?.startsWith("+");
   return (
-    <Card hover className="relative overflow-hidden p-5">
-      <div className="flex items-start justify-between gap-3">
-        <div className={cn("grid size-11 shrink-0 place-items-center rounded-xl bg-gradient-to-br text-white shadow-lg", tones[tone])}>
+    <Card hover className="group relative overflow-hidden p-5">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-[12px] font-semibold text-slate-500">{label}</p>
+        <span className={cn("grid size-9 shrink-0 place-items-center rounded-lg ring-1 transition-colors", tones[tone])}>
           {icon}
-        </div>
+        </span>
+      </div>
+      <div className="mt-3.5 flex flex-wrap items-end gap-x-2.5 gap-y-2">
+        <p className="font-display text-[27px] font-bold leading-none tracking-[-.03em] text-slate-900">{value}</p>
         {delta && (
           <span
             className={cn(
-              "inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-bold",
+              "mb-0.5 inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-bold tabular-nums",
               up ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-600"
             )}
           >
@@ -319,10 +401,12 @@ export function StatCard({
           </span>
         )}
       </div>
-      <p className="mt-4 text-[11.5px] font-bold uppercase tracking-wider text-slate-400">{label}</p>
-      <p className="mt-1 font-display text-[26px] font-extrabold leading-none tracking-tight text-slate-900">{value}</p>
-      {sub && <p className="mt-2 text-[12px] text-slate-500">{sub}</p>}
-      {spark && <div className="mt-3">{spark}</div>}
+      {sub && <p className="mt-2 text-[11.5px] leading-relaxed text-slate-400">{sub}</p>}
+      {spark && (
+        <div className="-mb-1 mt-3 opacity-75 transition-opacity duration-300 group-hover:opacity-100">
+          {spark}
+        </div>
+      )}
     </Card>
   );
 }

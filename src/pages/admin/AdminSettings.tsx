@@ -96,7 +96,7 @@ export default function AdminSettings() {
                 <div>
                   <p className="mb-2 text-[12.5px] font-semibold text-slate-700">Accent colour</p>
                   <div className="flex flex-wrap gap-2">
-                    {["#4f46e5", "#06b6d4", "#f97316", "#10b981", "#a855f7", "#0f172a"].map((c, i) => (
+                    {["#5947c6", "#0ea5e9", "#f97316", "#10b981", "#a855f7", "#0f172a"].map((c, i) => (
                       <button key={c} onClick={() => toast({ title: "Accent updated", tone: "success" })} className={cn("size-9 rounded-xl transition hover:scale-110", i === 0 && "ring-2 ring-offset-2 ring-brand-500")} style={{ background: c }} aria-label={c} />
                     ))}
                   </div>

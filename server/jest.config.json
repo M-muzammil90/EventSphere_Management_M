@@ -1,0 +1,11 @@
+{
+  "testEnvironment": "node",
+  "testMatch": ["**/src/tests/**/*.test.js"],
+  "transform": {},
+  "moduleNameMapper": {},
+  "testTimeout": 30000,
+  "maxWorkers": 1,
+  "forceExit": true,
+  "verbose": false,
+  "collectCoverageFrom": ["src/**/*.js", "!src/tests/**"]
+}
