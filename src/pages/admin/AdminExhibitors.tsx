@@ -5,8 +5,8 @@ import { ExhibitorLogo, StatCard } from "@/components/shared";
 import { BarChart } from "@/components/charts";
 import { fmt, money, useStore } from "@/lib/store";
 import { cn } from "@/utils/cn";
-import { BadgeCheck, Building2, Check, Download, FileWarning, Mail, MapPin, Search, ShieldCheck, Star, Users, X, Copy, Send, CalendarClock } from "lucide-react";
-import { fetchAdminExhibitors, reviewLiveApplication, updateLiveExhibitorStatus, fetchExpoBooths } from "@/lib/liveApi";
+import { BadgeCheck, Building2, Check, Download, FileWarning, Mail, MapPin, Search, ShieldCheck, Star, Users, X, Copy, Send, CalendarClock, FileText, ExternalLink, CheckCircle2 } from "lucide-react";
+import { fetchAdminExhibitors, reviewLiveApplication, updateLiveExhibitorStatus, fetchExpoBooths, fetchExhibitorDocuments, verifyLiveDocument } from "@/lib/liveApi";
 
 const STATUSES = ["All", "Pending", "Approved", "Rejected", "Waitlist"];
 
@@ -37,11 +37,27 @@ export default function AdminExhibitors() {
   const [rejectionReason, setRejectionReason] = useState("");
   const [reviewLoading, setReviewLoading] = useState(false);
   const [loadingBooths, setLoadingBooths] = useState(false);
+  const [reviewDocs, setReviewDocs] = useState<any[]>([]);
+  const [loadingDocs, setLoadingDocs] = useState(false);
+  const [verifyingDocId, setVerifyingDocId] = useState<string | null>(null);
 
   const openAppReview = async (app: any) => {
     setReviewingApp(app);
     setRejectionReason(app.rejectionReason || "");
     setSelectedBoothId(app.booth?._id || app.booth?.id || app.booth || "");
+    
+    // Load documents for this exhibitor
+    const exhibitorId = app.exhibitor?._id || app.exhibitor?.id || app.exhibitor;
+    if (exhibitorId) {
+      setLoadingDocs(true);
+      fetchExhibitorDocuments(exhibitorId)
+        .then((docs) => setReviewDocs(docs || []))
+        .catch(() => setReviewDocs(app.documents || []))
+        .finally(() => setLoadingDocs(false));
+    } else {
+      setReviewDocs(app.documents || []);
+    }
+
     const expoId = app.expo?._id || app.expo?.id || app.expo;
     if (expoId) {
       setLoadingBooths(true);
@@ -52,6 +68,38 @@ export default function AdminExhibitors() {
         setSelectedBoothId(av[0]._id || av[0].id);
       }
       setLoadingBooths(false);
+    }
+  };
+
+  const handleVerifyDoc = async (docId: string, targetStatus: "verified" | "rejected") => {
+    setVerifyingDocId(docId);
+    try {
+      let reason: string | undefined = undefined;
+      if (targetStatus === "rejected") {
+        const input = window.prompt("Enter rejection reason for this document:", "Document does not meet compliance standards");
+        if (input === null) {
+          setVerifyingDocId(null);
+          return;
+        }
+        reason = input;
+      }
+      await verifyLiveDocument(docId, targetStatus, reason);
+      setReviewDocs((prev) =>
+        prev.map((d) => (d._id === docId ? { ...d, status: targetStatus, rejectionReason: reason } : d))
+      );
+      toast({
+        title: `Document ${targetStatus === "verified" ? "Verified & Approved ✓" : "Rejected"}`,
+        body: `Compliance document updated in MongoDB.`,
+        tone: targetStatus === "verified" ? "success" : "warn",
+      });
+    } catch (err: any) {
+      toast({
+        title: "Document update failed",
+        body: err.message || "Could not verify document",
+        tone: "danger",
+      });
+    } finally {
+      setVerifyingDocId(null);
     }
   };
 
@@ -678,6 +726,107 @@ export default function AdminExhibitors() {
                 <div className="mt-3 pt-3 border-t border-slate-200">
                   <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Showcase Plan</p>
                   <p className="text-[12.5px] text-slate-700 mt-0.5 leading-relaxed">{reviewingApp.showcaseSummary}</p>
+                </div>
+              )}
+            </div>
+
+            {/* Compliance Documents Verification (Admin Approval Required) */}
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="size-4.5 text-brand-600" />
+                  <h5 className="font-bold text-[14px] text-slate-900">Exhibitor Compliance Documents</h5>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge tone={reviewDocs.every((d) => d.status === "verified") && reviewDocs.length >= 2 ? "success" : "warn"}>
+                    {reviewDocs.filter((d) => d.status === "verified").length} / {reviewDocs.length} Verified
+                  </Badge>
+                </div>
+              </div>
+
+              {loadingDocs ? (
+                <p className="text-[12.5px] text-slate-500 py-3 text-center">Loading compliance documents...</p>
+              ) : reviewDocs.length === 0 ? (
+                <div className="rounded-xl bg-amber-50 p-3 border border-amber-200 text-amber-800 text-[12.5px] flex items-center gap-2">
+                  <FileWarning className="size-4 shrink-0 text-amber-600" />
+                  <span>No documents on file yet for this exhibitor. Ensure required compliance papers are reviewed.</span>
+                </div>
+              ) : (
+                <div className="space-y-2.5">
+                  {reviewDocs.map((doc: any) => {
+                    const isVer = doc.status === "verified";
+                    const isRej = doc.status === "rejected";
+                    const isBusy = verifyingDocId === doc._id;
+
+                    const docTitle = doc.originalName || doc.filename || doc.docType?.replace(/_/g, " ");
+                    const docTypeLabel = (doc.docType || "other").replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase());
+                    const docUrl = doc.url?.startsWith("/") ? `http://localhost:5000${doc.url}` : doc.url;
+
+                    return (
+                      <div
+                        key={doc._id}
+                        className={cn(
+                          "flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3 transition",
+                          isVer ? "border-emerald-200 bg-emerald-50/40" : isRej ? "border-rose-200 bg-rose-50/30" : "border-slate-200 bg-slate-50/60"
+                        )}
+                      >
+                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                          <div className={cn(
+                            "grid size-9 shrink-0 place-items-center rounded-lg",
+                            isVer ? "bg-emerald-100 text-emerald-700" : isRej ? "bg-rose-100 text-rose-700" : "bg-brand-100 text-brand-700"
+                          )}>
+                            <FileText className="size-4.5" />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <p className="text-[13px] font-bold text-slate-900 truncate">{docTitle}</p>
+                              <Badge tone={isVer ? "success" : isRej ? "danger" : "warn"} className="text-[10px] uppercase">
+                                {doc.status || "pending"}
+                              </Badge>
+                            </div>
+                            <p className="text-[11px] text-slate-500 mt-0.5">
+                              {docTypeLabel} · {doc.mimeType || "application/pdf"} {doc.sizeBytes ? `· ${(doc.sizeBytes / 1024).toFixed(0)} KB` : ""}
+                            </p>
+                            {doc.rejectionReason && (
+                              <p className="text-[11px] text-rose-600 mt-0.5 font-medium">Reason: {doc.rejectionReason}</p>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {docUrl && (
+                            <a
+                              href={docUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-brand-600 hover:text-brand-800 px-2.5 py-1 rounded-lg hover:bg-brand-50"
+                            >
+                              <ExternalLink className="size-3.5" />
+                              View File
+                            </a>
+                          )}
+                          <Button
+                            size="xs"
+                            variant={isVer ? "secondary" : "outline"}
+                            loading={isBusy}
+                            icon={<CheckCircle2 className="size-3.5 text-emerald-600" />}
+                            onClick={() => handleVerifyDoc(doc._id, "verified")}
+                          >
+                            {isVer ? "Verified ✓" : "Approve"}
+                          </Button>
+                          <Button
+                            size="xs"
+                            variant="ghost"
+                            loading={isBusy}
+                            icon={<X className="size-3.5 text-rose-500" />}
+                            onClick={() => handleVerifyDoc(doc._id, "rejected")}
+                          >
+                            Reject
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>

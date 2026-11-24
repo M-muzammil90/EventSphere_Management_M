@@ -10,6 +10,7 @@ import {
   getMyPayments,
   downloadInvoicePdf,
   listRefunds,
+  deletePayment,
 } from "../controllers/paymentController.js";
 import { protect } from "../middleware/authMiddleware.js";
 import { restrictTo } from "../middleware/roleMiddleware.js";
@@ -39,6 +40,7 @@ router.get("/invoices/:id/pdf", downloadInvoicePdf);
 /* ------------------------------ Admin -------------------------------- */
 router.get("/admin/all", restrictTo("admin"), getAdminPayments);
 router.get("/admin/analytics", restrictTo("admin"), getAdminPayments);
+router.delete("/admin/:id", restrictTo("admin"), deletePayment);
 router.get("/refunds", restrictTo("admin"), listRefunds);
 router.patch("/refund/:id/review", restrictTo("admin"), reviewRefund);
 

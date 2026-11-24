@@ -45,4 +45,23 @@ export const ifAuthenticated = (req, _res, next) => {
   }
 };
 
+/** Optional authentication — populates req.user if a valid token is present, but does not block guests. */
+export const optionalProtect = async (req, _res, next) => {
+  try {
+    let token = req.cookies?.[process.env.JWT_COOKIE_NAME || "es_token"];
+    const header = req.headers.authorization;
+    if (!token && header?.startsWith("Bearer ")) token = header.slice(7);
+    if (!token) return next();
+
+    const decoded = verifyToken(token);
+    const user = await User.findById(decoded.id).select("+passwordChangedAt");
+    if (user && user.isActive) {
+      req.user = user;
+    }
+    next();
+  } catch {
+    next();
+  }
+};
+
 export default protect;

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   EXPOS,
   ATTENDANCE_TREND,
@@ -12,6 +12,7 @@ import {
   REGISTRATION_SPLIT,
   SESSION_POPULARITY,
 } from "@/lib/data";
+import { fetchLiveExpos, fetchLiveAnalyticsOverview, type Expo } from "@/lib/liveApi";
 import { Badge, Button, Card, CardHeader, Field, Input, Modal, Progress, Reveal, Select, Tabs, Table, Td, Th } from "@/components/ui";
 import { StatCard } from "@/components/shared";
 import { AreaChart, BarChart, Donut, Funnel, Gauge, Heatmap, RadialStack, Sparkline, StackedBar } from "@/components/charts";
@@ -36,10 +37,20 @@ export default function AdminAnalytics() {
   const exportApi = useExport();
   const [range, setRange] = useState("30d");
   const [tab, setTab] = useState("overview");
-  const [expo, setExpo] = useState("Global Tech Summit 2026");
+  const [expo, setExpo] = useState("All expos");
+  const [liveExpos, setLiveExpos] = useState<Expo[]>([]);
   const [custom, setCustom] = useState({ from: "2026-02-18", to: "2026-03-18" });
   const [compare, setCompare] = useState(true);
   const [schedule, setSchedule] = useState(false);
+
+  useEffect(() => {
+    fetchLiveExpos().then((res) => {
+      if (res && res.length) {
+        setLiveExpos(res);
+        setExpo(res[0]?.title || "All expos");
+      }
+    });
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -54,8 +65,12 @@ export default function AdminAnalytics() {
             {range === "custom" ? `${custom.from} → ${custom.to}` : range === "24h" ? "Last 24 hours" : range === "7d" ? "Last 7 days" : range === "30d" ? "Last 30 days" : range === "ytd" ? "Year to date" : "All time"}
           </Button>
           <Select value={expo} onChange={(e) => setExpo(e.target.value)} className="h-9.5 min-w-[210px]">
-            {EXPOS.map((e) => <option key={e.id}>{e.title}</option>)}
-            <option>All expos</option>
+            <option value="All expos">All expos</option>
+            {(liveExpos.length ? liveExpos : EXPOS).map((e) => (
+              <option key={e.id} value={e.title}>
+                {e.title}
+              </option>
+            ))}
           </Select>
           <Select value={range} onChange={(e) => setRange(e.target.value)} className="h-9.5 min-w-[130px]">
             <option value="24h">24 hours</option>

@@ -8,20 +8,23 @@ import { AVATARS, EXPOS } from "./data";
 export type Attendee = {
   id: string;
   _id?: string;
+  regId?: string;
+  badgeCode?: string;
   name: string;
   email: string;
   avatar: string;
   company: string;
   jobTitle: string;
   country: string;
-  ticket: "Full Access" | "Day Pass" | "Exhibitor Guest" | "VIP" | "Press";
-  status: "Confirmed" | "Checked-in" | "Waitlist" | "Cancelled" | "No-show";
+  ticket: string;
+  status: string;
   registered: string;
   eventsAttended: number;
   sessionsAttended: number;
   boothsVisited: number;
   spend: number;
   rating: number;
+  tickets?: any[];
   notes?: string;
 };
 

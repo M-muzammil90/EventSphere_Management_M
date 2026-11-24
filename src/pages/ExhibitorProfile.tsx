@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { EXHIBITORS, SESSIONS, EXPOS } from "@/lib/data";
+import { EXHIBITORS, SESSIONS, EXPOS, type Exhibitor } from "@/lib/data";
 import { FEEDBACK } from "@/lib/mock";
 import { Avatar, Badge, Button, Card, CardHeader, EmptyState, Field, Modal, Progress, Select, Textarea, Tabs } from "@/components/ui";
 import { ExhibitorLogo } from "@/components/shared";
@@ -9,7 +9,7 @@ import { BarChart, Gauge } from "@/components/charts";
 import { ConfirmDialog } from "@/components/kit";
 import { fmt, money, useStore } from "@/lib/store";
 import { cn } from "@/utils/cn";
-import { startLiveConversation } from "@/lib/liveApi";
+import { startLiveConversation, fetchLiveExhibitorProfile } from "@/lib/liveApi";
 import {
   ArrowLeft, Award, Bookmark, Building2, CalendarClock, CheckCircle2, Clock, Globe2, Mail, MapPin,
   MessageSquare, Send, Star, TrendingUp, Users,
@@ -19,7 +19,70 @@ export default function ExhibitorProfile() {
   const { id } = useParams();
   const nav = useNavigate();
   const { toast } = useStore();
-  const ex = EXHIBITORS.find((e) => e.id.toLowerCase() === (id ?? "").toLowerCase());
+
+  const [loading, setLoading] = useState(true);
+  const [liveEx, setLiveEx] = useState<Exhibitor | null>(null);
+
+  useEffect(() => {
+    if (!id) {
+      setLoading(false);
+      return;
+    }
+    const staticMatch = EXHIBITORS.find((e) => e.id.toLowerCase() === id.toLowerCase());
+    if (staticMatch) {
+      setLiveEx(staticMatch);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    fetchLiveExhibitorProfile(id)
+      .then((data) => {
+        if (data?.profile) {
+          const p = data.profile;
+          const assignedBooth = data.booths?.[0]?.boothId || "A-12";
+          const assignedHall = (data.booths?.[0]?.zone || "Hall 4") + " — North";
+          const prods = Array.isArray(p.products) && p.products.length > 0
+            ? p.products.map((x: any) => x.name || "Solution")
+            : ["Cloud Infrastructure Core", "Enterprise Observability Suite"];
+
+          const mapped: Exhibitor = {
+            id: p._id || id,
+            company: p.company?.name || "Company",
+            logoText: (p.company?.name || "ES").slice(0, 2).toUpperCase(),
+            logoBg: "from-indigo-500 to-violet-600",
+            category: p.category || "Cloud Infrastructure",
+            country: p.contact?.country || "United States",
+            booth: assignedBooth,
+            hall: assignedHall,
+            badgeTier: (p.tier || "Platinum") as any,
+            traffic: p.stats?.traffic || 842,
+            leads: p.stats?.leads || 46,
+            revenue: p.stats?.revenue || 280000,
+            rep: p.contact?.primaryName || p.user?.name || "Booth Lead",
+            email: p.contact?.email || p.user?.email || "contact@eventsphere.io",
+            avatar: p.user?.avatar || "https://images.pexels.com/photos/7752822/pexels-photo-7752822.jpeg?auto=compress&cs=tinysrgb&dpr=1&h=200&w=200",
+            leadScore: 92,
+            staff: Array.isArray(p.staff) ? p.staff.length || 4 : 4,
+            products: prods,
+            rating: p.rating || 4.9,
+            joined: p.createdAt ? new Date(p.createdAt).toISOString().split("T")[0] : "2026-01-15",
+            status: p.verificationStatus === "verified" ? "Approved" : "Approved",
+            docs: "Complete",
+            description: p.company?.description || "A leading enterprise solutions provider showcasing next-generation technology at EventSphere.",
+          };
+          setLiveEx(mapped);
+        } else {
+          setLiveEx(staticMatch || null);
+        }
+      })
+      .catch(() => {
+        setLiveEx(staticMatch || null);
+      })
+      .finally(() => setLoading(false));
+  }, [id]);
+
+  const ex = liveEx || EXHIBITORS.find((e) => e.id.toLowerCase() === (id ?? "").toLowerCase());
 
   const [tab, setTab] = useState("overview");
   const [contact, setContact] = useState(false);
@@ -33,6 +96,17 @@ export default function ExhibitorProfile() {
 
   const reviews = useMemo(() => FEEDBACK.filter((f) => f.targetType === "Exhibitor"), []);
   const related = useMemo(() => EXHIBITORS.filter((e) => e.category === ex?.category && e.id !== ex?.id).slice(0, 3), [ex]);
+
+  if (loading) {
+    return (
+      <Shell>
+        <div className="mx-auto max-w-3xl px-4 py-28 text-center">
+          <div className="inline-block size-8 animate-spin rounded-full border-4 border-brand-500 border-t-transparent" />
+          <p className="mt-4 text-[14px] font-medium text-slate-500">Loading exhibitor profile from EventSphere...</p>
+        </div>
+      </Shell>
+    );
+  }
 
   if (!ex)
     return (

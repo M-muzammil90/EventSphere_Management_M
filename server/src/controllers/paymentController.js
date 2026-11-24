@@ -269,3 +269,24 @@ export const listRefunds = asyncHandler(async (req, res) => {
 
   return ApiResponse.ok(res, refunds);
 });
+
+/* =====================================================================
+   ADMIN DELETE PAYMENT
+   ===================================================================== */
+export const deletePayment = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+
+  const payment = await Payment.findById(id);
+  if (!payment) {
+    throw ApiError.notFound("Payment record not found");
+  }
+
+  // Delete payment record and related invoices & refunds
+  await Promise.all([
+    Payment.findByIdAndDelete(id),
+    Invoice.deleteMany({ $or: [{ paymentId: id }, { orderId: payment.orderId }] }),
+    Refund.deleteMany({ paymentId: id }),
+  ]);
+
+  return ApiResponse.ok(res, null, "Payment transaction deleted successfully");
+});

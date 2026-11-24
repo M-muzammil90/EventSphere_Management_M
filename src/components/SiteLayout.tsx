@@ -47,6 +47,7 @@ const NAV: { to: string; label: string }[] = [
   { to: "/expos", label: "Explore Expos" },
   { to: "/exhibitors", label: "Exhibitors" },
   { to: "/schedule", label: "Schedule" },
+  { to: "/speakers", label: "Speakers" },
   { to: "/floor-plan", label: "Floor Plan" },
   { to: "/about", label: "About" },
   { to: "/contact", label: "Contact" },
@@ -253,10 +254,10 @@ export function SocialLinks({ light }: { light?: boolean }) {
 /* -------------------------------- Footer ------------------------------- */
 export function Footer() {
   const groups = [
-    { title: "Product", links: [["Features", "/#features"], ["Pricing", "/pricing"], ["Floor plans", "/floor-plan"], ["Analytics", "/admin/analytics"]] },
-    { title: "Resources", links: [["Help center", "/support"], ["Expo guide", "/about"], ["Contact support", "/contact"], ["System status", "/support"]] },
-    { title: "Company", links: [["About us", "/about"], ["Our team", "/about"], ["Contact", "/contact"], ["Book a demo", "/contact"]] },
-    { title: "Legal", links: [["Privacy policy", "/support"], ["Terms of service", "/support"], ["Accessibility", "/support"], ["Cookie settings", "/support"]] },
+    { title: "Product", links: [["Explore Expos", "/expos"], ["Exhibitors", "/exhibitors"], ["Schedule", "/schedule"], ["Speakers", "/speakers"], ["Floor plans", "/floor-plan"]] },
+    { title: "Resources", links: [["Help center & FAQs", "/faq"], ["Expo guide", "/about"], ["Contact support", "/contact"], ["System status", "/support"]] },
+    { title: "Company", links: [["About us", "/about"], ["Our mission", "/about"], ["Contact", "/contact"], ["Support", "/support"]] },
+    { title: "Legal", links: [["Privacy policy", "/privacy"], ["Terms of service", "/terms"], ["Accessibility", "/terms"], ["Security", "/privacy"]] },
   ];
 
   return (

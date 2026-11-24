@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Badge, Button, Card, CardHeader, Field, Input, Progress, Select, Tabs, Textarea, Toggle } from "@/components/ui";
 import { Avatar } from "@/components/ui";
 import { useStore } from "@/lib/store";
@@ -26,6 +26,19 @@ export default function AdminSettings() {
   });
   const [privacy, setPrivacy] = useState({ profileVisible: true, dataSharing: false, analytics: true });
   const [twofa, setTwofa] = useState(true);
+
+  const teamList = useMemo(() => {
+    return [
+      {
+        n: user?.name || "EventSphere Admin",
+        e: user?.email || "admin@eventsphere.io",
+        r: "Owner",
+        s: "Active",
+        a: user?.avatar || AVATARS[0],
+      },
+      ...TEAM.filter((m) => m.e !== user?.email),
+    ];
+  }, [user]);
 
   return (
     <div className="space-y-6">
@@ -124,7 +137,7 @@ export default function AdminSettings() {
           <CardHeader title="Team & role permissions" subtitle="4 members on the Growth plan · 2 seats remaining"
             right={<Button size="sm" icon={<Users className="size-4" />} onClick={() => toast({ title: "Invite sent", tone: "success" })}>Invite member</Button>} />
           <div className="divide-y divide-slate-100">
-            {TEAM.map((m) => (
+            {teamList.map((m) => (
               <div key={m.e} className="flex flex-wrap items-center gap-3 px-5 py-4">
                 <Avatar src={m.a} name={m.n} size={40} />
                 <div className="min-w-0 flex-1">

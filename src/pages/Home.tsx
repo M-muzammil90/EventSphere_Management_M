@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { MEDIA, EXPOS, TESTIMONIALS, PARTNERS, FEATURES, IMG } from "@/lib/data";
+import { MEDIA, EXPOS, TESTIMONIALS, PARTNERS, FEATURES, IMG, type Expo } from "@/lib/data";
+import { fetchLiveExpos } from "@/lib/liveApi";
 import { HOME_FAQS } from "@/lib/mock";
 import { Button, Reveal } from "@/components/ui";
 import { Shell } from "@/components/SiteLayout";
@@ -9,7 +10,7 @@ import { cn } from "@/utils/cn";
 import { fmt } from "@/lib/store";
 import {
   ArrowRight, BarChart3, Building2, Check,
-  ChevronDown, ChevronLeft, ChevronRight, Clock, LayoutDashboard, Map,
+  ChevronDown, Clock, LayoutDashboard, Map,
   MapPin, MessagesSquare, Play, ShieldCheck, Sparkles, Star,
   Users,
 } from "lucide-react";
@@ -83,38 +84,94 @@ function AboutSection() {
   );
 }
 
+
+/* Photo on the left panel. Replace with any image URL you like (landscape or portrait both work). */
+const FEATURE_IMAGE = IMG.expoTech;
+
 function Features() {
+  const [lead, ...rest] = FEATURES; // first feature sits on the photo, the rest are compact cards
+  const LeadIcon = FEATURE_ICONS[lead.icon] ?? LayoutDashboard;
+  const oddLast = rest.length % 2 === 1; // if the count is odd, the last card stretches across both columns
+
   return (
     <section id="features" className="section-space-sm bg-slate-50">
-      <div className="content-wrap grid items-start gap-10 lg:grid-cols-[.65fr_1.35fr] lg:gap-14">
+      <div className="content-wrap">
         <Reveal>
-          <Eyebrow>Powerful features</Eyebrow>
-          <h2 className="mt-5 font-display text-[30px] font-bold leading-[1.12] tracking-[-.04em] text-slate-900 sm:text-[36px]">Everything you expect needs.</h2>
-          <p className="mt-4 text-[13px] text-slate-600">Working beautifully together.</p>
-          <Link to="/expos" className="mt-5 inline-flex items-center gap-2 text-[12px] font-bold text-brand-600 transition hover:gap-3">Explore all features <ArrowRight className="size-3.5" /></Link>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <div className="max-w-xl">
+              <h2 className="font-display text-[32px] font-bold leading-[1.1] tracking-[-.04em] text-slate-900 sm:text-[42px]">
+                Everything an expo needs.
+              </h2>
+              <p className="mt-3 text-base text-slate-600 sm:text-[17px]">Working beautifully together.</p>
+            </div>
+            <Link
+              to="/expos"
+              className="group inline-flex items-center gap-1.5 self-start rounded-lg text-sm font-semibold text-brand-600 transition hover:text-brand-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand-500 sm:self-auto"
+            >
+              Explore all features
+              <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
+            </Link>
+          </div>
         </Reveal>
 
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {FEATURES.map((feature, i) => {
-            const Icon = FEATURE_ICONS[feature.icon] ?? LayoutDashboard;
-            return (
-              <Reveal key={feature.title} delay={i * 45}>
-                <div className="h-full rounded-xl border border-slate-200 bg-white p-5 transition-all duration-300 hover:-translate-y-1 hover:border-brand-200 hover:shadow-[0_12px_32px_-20px_rgba(23,28,53,.2)]">
-                  <span className="grid size-9 place-items-center rounded-lg bg-brand-50 text-brand-600"><Icon className="size-4" /></span>
-                  <h3 className="mt-3.5 font-display text-[13.5px] font-bold tracking-[-.015em] text-slate-900">{feature.title}</h3>
-                  <p className="mt-2 text-[11px] leading-[1.7] text-slate-500">{feature.body}</p>
-                </div>
-              </Reveal>
-            );
-          })}
+        <div className="mt-10 grid gap-4 lg:grid-cols-[5fr_7fr] lg:gap-5">
+          {/* ---------- photo panel (the one bold element) ---------- */}
+          <Reveal className="h-full">
+            <article className="group relative isolate flex min-h-[380px] h-full flex-col justify-end overflow-hidden rounded-3xl bg-ink-950 p-4 sm:min-h-[440px] sm:p-5">
+              <img
+                src={FEATURE_IMAGE}
+                alt=""
+                loading="lazy"
+                className="absolute inset-0 -z-20 size-full object-cover transition-transform duration-700 group-hover:scale-105"
+              />
+              <div
+                className="absolute inset-0 -z-10 bg-gradient-to-t from-ink-950/85 via-ink-950/15 to-transparent"
+                aria-hidden="true"
+              />
+
+              {/* glass caption */}
+              <div className="rounded-2xl border border-white/20 bg-ink-950/45 p-5 backdrop-blur-md">
+                <span className="grid size-10 place-items-center rounded-xl bg-white/15 text-white">
+                  <LeadIcon className="size-5" aria-hidden="true" />
+                </span>
+                <h3 className="mt-4 font-display text-xl font-bold tracking-[-.02em] text-white">{lead.title}</h3>
+                <p className="mt-1.5 text-sm leading-relaxed text-white/80">{lead.body}</p>
+              </div>
+            </article>
+          </Reveal>
+
+          {/* ---------- compact feature cards ---------- */}
+          <ul className="grid content-start gap-4 sm:grid-cols-2 lg:gap-5">
+            {rest.map((feature, i) => {
+              const Icon = FEATURE_ICONS[feature.icon] ?? LayoutDashboard;
+              const stretch = oddLast && i === rest.length - 1;
+              return (
+                <li key={feature.title} className={cn(stretch && "sm:col-span-2")}>
+                  <Reveal delay={i * 50} className="h-full">
+                    <article className="group flex h-full gap-4 rounded-2xl border border-slate-200 bg-white p-5 transition-[transform,box-shadow,border-color] duration-300 hover:-translate-y-0.5 hover:border-brand-200 hover:shadow-[0_14px_32px_-22px_rgba(23,28,53,.3)]">
+                      <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-600 transition-colors duration-300 group-hover:bg-brand-600 group-hover:text-white">
+                        <Icon className="size-5" aria-hidden="true" />
+                      </span>
+                      <div className="min-w-0">
+                        <h3 className="font-display text-base font-bold tracking-[-.015em] text-slate-900">
+                          {feature.title}
+                        </h3>
+                        <p className="mt-1.5 text-sm leading-relaxed text-slate-600">{feature.body}</p>
+                      </div>
+                    </article>
+                  </Reveal>
+                </li>
+              );
+            })}
+          </ul>
         </div>
       </div>
     </section>
   );
 }
-
-function CommandCenter() {
+function CommandCenter({ expos }: { expos: Expo[] }) {
   const bars = [38, 52, 46, 64, 58, 78, 70, 88];
+  const topList = expos.slice(0, 3);
   return (
     <section className="bg-slate-50 pb-16 sm:pb-20">
       <div className="content-wrap">
@@ -135,7 +192,7 @@ function CommandCenter() {
                 <div>
                   <div className="flex items-center justify-between">
                     <h3 className="font-display text-[14px] font-bold text-slate-900">Event performance</h3>
-                    <span className="text-[9px] font-semibold text-slate-400">Last 30 days</span>
+                    <span className="text-[9px] font-semibold text-slate-400">Live MongoDB</span>
                   </div>
                   <div className="mt-6 flex h-32 items-end gap-2 border-b border-slate-100">
                     {bars.map((h, i) => <div key={i} className={cn("flex-1 rounded-t-md", i === 6 ? "bg-brand-400" : "bg-brand-500/70")} style={{ height: `${h}%` }} />)}
@@ -147,9 +204,9 @@ function CommandCenter() {
                   </div>
                 </div>
                 <div className="border-t border-slate-100 pt-4 sm:border-l sm:border-t-0 sm:pl-5 sm:pt-0">
-                  <div className="flex items-center justify-between"><h3 className="font-display text-[12px] font-bold text-slate-900">Top events</h3><span className="text-[8px] font-semibold text-slate-400">Last 30 days</span></div>
+                  <div className="flex items-center justify-between"><h3 className="font-display text-[12px] font-bold text-slate-900">Top events</h3><span className="text-[8px] font-semibold text-slate-400">Live</span></div>
                   <div className="mt-3 space-y-3">
-                    {EXPOS.slice(0, 3).map((expo, i) => (
+                    {topList.map((expo, i) => (
                       <div key={expo.id} className="flex items-center gap-2.5 rounded-lg border border-slate-100 p-2">
                         <img
                           src={expo.cover}
@@ -161,7 +218,7 @@ function CommandCenter() {
                           }}
                         />
                         <div className="min-w-0 flex-1"><p className="truncate text-[9px] font-bold text-slate-800">{expo.title}</p><p className="mt-0.5 text-[8px] text-slate-400">{fmt(expo.attendees)} visitors</p></div>
-                        <span className="text-[8px] font-bold text-emerald-600">+{[24, 18, 12][i]}%</span>
+                        <span className="text-[8px] font-bold text-emerald-600">+{[24, 18, 12][i % 3]}%</span>
                       </div>
                     ))}
                   </div>
@@ -175,58 +232,118 @@ function CommandCenter() {
   );
 }
 
-function Upcoming() {
-  const list = EXPOS.filter((e) => e.status !== "Completed").slice(0, 4);
+const FALLBACK_COVER =
+  "https://images.pexels.com/photos/38041486/pexels-photo-38041486.jpeg?auto=compress&cs=tinysrgb&fit=crop&h=627&w=1200";
+
+function dateParts(value: string) {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return {
+    day: d.toLocaleDateString("en-US", { day: "numeric" }),
+    month: d.toLocaleDateString("en-US", { month: "short" }),
+    full: d.toLocaleDateString("en-US", { day: "numeric", month: "long", year: "numeric" }),
+  };
+}
+
+function Upcoming({ expos }: { expos: Expo[] }) {
+  const activeList = expos.filter((e) => e.status !== "Completed");
+  const list = (activeList.length > 0 ? activeList : expos).slice(0, 3);
+
   return (
     <section className="section-space-sm bg-white">
       <div className="content-wrap">
         <Reveal>
-          <div className="flex items-end justify-between gap-5">
-            <div>
-              <Eyebrow>Find opportunities</Eyebrow>
-              <h2 className="mt-4 font-display text-[28px] font-bold tracking-[-.04em] text-slate-900 sm:text-[32px]">Find your next opportunity.</h2>
-              <p className="mt-2.5 text-[12.5px] text-slate-600">Discover upcoming expos, meet industry leaders and grow your network.</p>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <div className="max-w-xl">
+              <h2 className="font-display text-[30px] font-bold tracking-[-.04em] text-slate-900 sm:text-[38px]">
+                Find your next opportunity.
+              </h2>
+              <p className="mt-3 text-[15px] leading-relaxed text-slate-600 sm:text-base">
+                Discover upcoming expos, meet industry leaders and grow your network.
+              </p>
             </div>
-            <div className="hidden gap-2 sm:flex">
-              <Link to="/expos" aria-label="Previous expos" className="grid size-9 place-items-center rounded-full border border-slate-200 text-slate-500 transition hover:border-brand-300 hover:text-brand-600"><ChevronLeft className="size-4" /></Link>
-              <Link to="/expos" aria-label="Next expos" className="grid size-9 place-items-center rounded-full border border-brand-200 bg-brand-50 text-brand-600 transition hover:bg-brand-100"><ChevronRight className="size-4" /></Link>
-            </div>
+            <Link
+              to="/expos"
+              className="group inline-flex items-center gap-1.5 self-start rounded-lg text-sm font-semibold text-brand-600 transition hover:text-brand-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand-500 sm:self-auto"
+            >
+              View all expos
+              <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
+            </Link>
           </div>
         </Reveal>
 
-        <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {list.map((expo, i) => (
-            <Reveal key={expo.id} delay={i * 55}>
-              <article className="group h-full overflow-hidden rounded-xl border border-slate-200 bg-white transition-all duration-300 hover:-translate-y-1 hover:border-brand-200 hover:shadow-[0_14px_36px_-20px_rgba(23,28,53,.22)]">
-                <Link to={`/expos/${expo.slug}`} className="relative block h-36 overflow-hidden">
-                  <img
-                    src={expo.cover}
-                    alt={expo.title}
-                    loading="lazy"
-                    className="size-full object-cover transition-transform duration-700 group-hover:scale-105"
-                    onError={(ev) => {
-                      (ev.target as HTMLImageElement).src =
-                        "https://images.pexels.com/photos/38041486/pexels-photo-38041486.jpeg?auto=compress&cs=tinysrgb&fit=crop&h=627&w=1200";
-                    }}
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-ink-950/45 to-transparent" />
-                  <span className="absolute bottom-2.5 left-2.5 rounded-md bg-white/95 px-2 py-1 text-[8px] font-bold text-brand-600">{new Date(expo.startDate).toLocaleDateString("en-US", { day: "2-digit", month: "short" }).toUpperCase()}</span>
-                </Link>
-                <div className="p-4">
-                  <h3 className="truncate font-display text-[13px] font-bold text-slate-900">{expo.title}</h3>
-                  <p className="mt-1.5 flex items-center gap-1 text-[9.5px] text-slate-500"><MapPin className="size-2.5" /> {expo.city}</p>
-                  <p className="mt-2 flex items-center gap-1 text-[9.5px] font-semibold text-slate-500"><Users className="size-2.5" /> {fmt(expo.attendees)} attendees</p>
-                  <Link to={`/expos/${expo.slug}`} className="mt-3 inline-flex items-center gap-1 text-[10px] font-bold text-brand-600 transition group-hover:gap-2">View details <ArrowRight className="size-3" /></Link>
-                </div>
-              </article>
-            </Reveal>
-          ))}
-        </div>
+        <ul className="mt-10 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+          {list.map((expo, i) => {
+            const href = `/expos/${expo.slug || expo.id}`;
+            const date = dateParts(expo.startDate);
+            const place = expo.city || expo.venue;
+
+            return (
+              <li key={expo.id}>
+                <Reveal delay={i * 60} className="h-full">
+                  <article className="group relative h-full">
+                    {/* image */}
+                    <div className="relative aspect-[4/3] overflow-hidden rounded-3xl bg-slate-100">
+                      <img
+                        src={expo.cover}
+                        alt=""
+                        loading="lazy"
+                        className="size-full object-cover transition-transform duration-700 group-hover:scale-[1.04]"
+                        onError={(ev) => {
+                          const img = ev.currentTarget;
+                          if (img.dataset.fallback) return;
+                          img.dataset.fallback = "1";
+                          img.src = FALLBACK_COVER;
+                        }}
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-ink-950/40 via-transparent to-transparent" />
+
+                      {date && (
+                        <time
+                          dateTime={expo.startDate}
+                          aria-label={date.full}
+                          className="absolute left-4 top-4 flex w-14 flex-col items-center rounded-2xl bg-white py-2 shadow-sm"
+                        >
+                          <span className="font-display text-xl font-extrabold leading-none text-slate-900">{date.day}</span>
+                          <span className="mt-1 text-xs font-semibold leading-none text-brand-600">{date.month}</span>
+                        </time>
+                      )}
+
+                      <span className="absolute bottom-4 right-4 grid size-11 place-items-center rounded-full bg-white text-slate-900 shadow-sm transition-all duration-300 group-hover:bg-brand-600 group-hover:text-white">
+                        <ArrowRight className="size-5 -rotate-45 transition-transform duration-300 group-hover:rotate-0" aria-hidden="true" />
+                      </span>
+                    </div>
+
+                    {/* text */}
+                    <div className="px-1 pt-5">
+                      <p className="text-sm font-semibold text-brand-600">{expo.category || "Expo"}</p>
+
+                      <h3 className="mt-1.5 line-clamp-2 font-display text-[22px] font-bold leading-snug tracking-[-.025em] text-slate-900">
+                        <Link
+                          to={href}
+                          className="after:absolute after:inset-0 after:rounded-3xl focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-brand-500 focus-visible:after:ring-offset-4"
+                        >
+                          {expo.title}
+                        </Link>
+                      </h3>
+
+                      {place && (
+                        <p className="mt-2.5 flex items-center gap-2 text-[15px] text-slate-600">
+                          <MapPin className="size-4 shrink-0 text-slate-400" aria-hidden="true" />
+                          <span className="truncate">{place}</span>
+                        </p>
+                      )}
+                    </div>
+                  </article>
+                </Reveal>
+              </li>
+            );
+          })}
+        </ul>
       </div>
     </section>
   );
 }
-
 function Benefits() {
   return (
     <section id="benefits" className="bg-white pb-16 sm:pb-20">
@@ -420,14 +537,24 @@ function CTA() {
 }
 
 export default function Home() {
+  const [expos, setExpos] = useState<Expo[]>(EXPOS);
+
+  useEffect(() => {
+    fetchLiveExpos()
+      .then((data) => {
+        if (data && data.length > 0) setExpos(data);
+      })
+      .catch((err) => console.warn("Live expos load:", err));
+  }, []);
+
   return (
     <Shell>
       <CinematicHero />
       <Partners />
       <AboutSection />
       <Features />
-      <CommandCenter />
-      <Upcoming />
+      <CommandCenter expos={expos} />
+      <Upcoming expos={expos} />
       <Benefits />
       <FloorPlanSection />
       <Workflow />

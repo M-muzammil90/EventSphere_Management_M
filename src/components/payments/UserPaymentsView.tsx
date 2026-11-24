@@ -1,10 +1,9 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
 import {
   fetchMyPayments,
   fetchMyOrders,
   requestLiveRefund,
-  getInvoicePdfUrl,
+  downloadInvoicePdfBlob,
   type LiveOrder,
   type LivePayment,
 } from "@/lib/liveApi";
@@ -15,6 +14,7 @@ import {
   CreditCard,
   RefreshCw,
 } from "lucide-react";
+import CheckoutModal from "./CheckoutModal";
 
 type FilterTab = "ALL" | "PENDING" | "PAID" | "FAILED" | "INVOICES" | "REFUNDS";
 
@@ -32,6 +32,30 @@ export default function UserPaymentsView() {
   const [refundReason, setRefundReason] = useState("");
   const [refundAmount, setRefundAmount] = useState(0);
   const [submittingRefund, setSubmittingRefund] = useState(false);
+
+  // Checkout & Invoice download state
+  const [checkoutOrder, setCheckoutOrder] = useState<LiveOrder | null>(null);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+
+  const handleDownloadInvoice = async (id: string, num?: string) => {
+    setDownloadingId(id);
+    try {
+      await downloadInvoicePdfBlob(id, num ? `Invoice-${num}.pdf` : undefined);
+      toast({
+        title: "Invoice Downloaded ✓",
+        body: "Official PDF saved to your device.",
+        tone: "success",
+      });
+    } catch (err: any) {
+      toast({
+        title: "Download Failed",
+        body: err.message || "Could not download invoice PDF.",
+        tone: "danger",
+      });
+    } finally {
+      setDownloadingId(null);
+    }
+  };
 
   const loadData = async () => {
     setLoading(true);
@@ -198,15 +222,15 @@ export default function UserPaymentsView() {
                         <Badge tone="positive">Verified Paid</Badge>
                       </td>
                       <td className="py-3 px-4 text-right">
-                        <a
-                          href={getInvoicePdfUrl(inv.orderId?._id || inv.orderId || inv._id)}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-slate-900 text-white font-medium text-xs hover:bg-slate-800 transition"
+                        <button
+                          type="button"
+                          onClick={() => handleDownloadInvoice(inv.orderId?._id || inv.orderId || inv._id, inv.invoiceNumber)}
+                          disabled={downloadingId === (inv.orderId?._id || inv.orderId || inv._id)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-slate-900 text-white font-medium text-xs hover:bg-slate-800 transition disabled:opacity-50"
                         >
                           <Download className="size-3.5" />
-                          Download PDF
-                        </a>
+                          {downloadingId === (inv.orderId?._id || inv.orderId || inv._id) ? "Downloading..." : "Download PDF"}
+                        </button>
                       </td>
                     </tr>
                   ))
@@ -379,15 +403,15 @@ export default function UserPaymentsView() {
                       <td className="py-3 px-4 text-right space-x-2">
                         {ord.paymentStatus === "PAID" ? (
                           <div className="inline-flex items-center gap-2">
-                            <a
-                              href={getInvoicePdfUrl(ord._id)}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-slate-900 text-white font-medium text-[11px] hover:bg-slate-800 transition"
+                            <button
+                              type="button"
+                              onClick={() => handleDownloadInvoice(ord._id, `INV-${ord.orderNumber.replace("ORD-", "")}`)}
+                              disabled={downloadingId === ord._id}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-slate-900 text-white font-medium text-[11px] hover:bg-slate-800 transition disabled:opacity-50"
                             >
                               <Download className="size-3" />
-                              PDF Invoice
-                            </a>
+                              {downloadingId === ord._id ? "..." : "PDF Invoice"}
+                            </button>
                             <button
                               onClick={() => {
                                 setRefundOrder(ord);
@@ -399,13 +423,14 @@ export default function UserPaymentsView() {
                             </button>
                           </div>
                         ) : (
-                          <Link
-                            to={`/checkout/${ord._id}`}
-                            className="inline-flex items-center gap-1 px-3 py-1 rounded-lg bg-brand-600 text-white font-bold text-[11px] hover:bg-brand-700 transition"
+                          <button
+                            type="button"
+                            onClick={() => setCheckoutOrder(ord)}
+                            className="inline-flex items-center gap-1 px-3 py-1 rounded-lg bg-brand-600 text-white font-bold text-[11px] hover:bg-brand-700 transition shadow-sm"
                           >
                             <CreditCard className="size-3" />
                             Pay Now
-                          </Link>
+                          </button>
                         )}
                       </td>
                     </tr>
@@ -471,6 +496,17 @@ export default function UserPaymentsView() {
           </div>
         </Modal>
       )}
+
+      {/* Checkout Modal */}
+      <CheckoutModal
+        open={!!checkoutOrder}
+        initialOrder={checkoutOrder}
+        onClose={() => setCheckoutOrder(null)}
+        onSuccess={() => {
+          setCheckoutOrder(null);
+          loadData();
+        }}
+      />
     </div>
   );
 }

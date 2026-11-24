@@ -1,6 +1,6 @@
 import { Router } from "express";
 import * as c from "../controllers/exhibitorController.js";
-import { protect } from "../middleware/authMiddleware.js";
+import { protect, optionalProtect } from "../middleware/authMiddleware.js";
 import { restrictTo } from "../middleware/roleMiddleware.js";
 import { validate } from "../middleware/validationMiddleware.js";
 import { uploadLogo, uploadDocument, optionalUpload } from "../middleware/uploadMiddleware.js";
@@ -14,40 +14,40 @@ const router = Router();
    -------------------------------------------------------------------- */
 router.get("/directory", c.getDirectory);
 
-/* --------------------------- exhibitor ------------------------------ */
-router.use(protect);
-
-router.get("/me", restrictTo("exhibitor", "admin"), c.getMyProfile);
-router.patch("/me", restrictTo("exhibitor", "admin"), validate({ body: updateExhibitorProfileSchema }), c.updateMyProfile);
-router.post("/me/logo", restrictTo("exhibitor", "admin"), optionalUpload(uploadLogo), c.uploadLogo);
+/* --------------------------- exhibitor (authenticated) --------------- */
+router.get("/me", protect, restrictTo("exhibitor", "admin"), c.getMyProfile);
+router.patch("/me", protect, restrictTo("exhibitor", "admin"), validate({ body: updateExhibitorProfileSchema }), c.updateMyProfile);
+router.post("/me/logo", protect, restrictTo("exhibitor", "admin"), optionalUpload(uploadLogo), c.uploadLogo);
 
 // applications
-router.get("/me/applications", restrictTo("exhibitor", "admin"), c.getMyApplications);
-router.post("/applications/:expoId", restrictTo("exhibitor", "admin"), validate({ body: applicationSchema }), c.applyForExpo);
+router.get("/me/applications", protect, restrictTo("exhibitor", "admin"), c.getMyApplications);
+router.post("/applications/:expoId", protect, restrictTo("exhibitor", "admin"), validate({ body: applicationSchema }), c.applyForExpo);
 
 // documents
-router.get("/me/documents", restrictTo("exhibitor", "admin"), c.getMyDocuments);
-router.post("/documents", restrictTo("exhibitor", "admin"), optionalUpload(uploadDocument), c.uploadDocument);
-router.post("/documents/:id/replace", restrictTo("exhibitor", "admin"), uploadDocument, c.replaceDocument);
-router.delete("/documents/:id", restrictTo("exhibitor", "admin"), c.deleteDocument);
+router.get("/me/documents", protect, restrictTo("exhibitor", "admin"), c.getMyDocuments);
+router.post("/documents", protect, restrictTo("exhibitor", "admin"), optionalUpload(uploadDocument), c.uploadDocument);
+router.post("/documents/:id/replace", protect, restrictTo("exhibitor", "admin"), uploadDocument, c.replaceDocument);
+router.delete("/documents/:id", protect, restrictTo("exhibitor", "admin"), c.deleteDocument);
+router.patch("/documents/:id/verify", protect, restrictTo("admin", "organizer"), c.verifyDocument);
+router.get("/:id/documents", protect, restrictTo("admin", "organizer", "exhibitor"), c.getExhibitorDocuments);
 
 // staff
-router.post("/me/staff", restrictTo("exhibitor", "admin"), validate({ body: staffSchema }), c.addStaff);
-router.patch("/me/staff/:staffId", restrictTo("exhibitor", "admin"), c.updateStaff);
-router.delete("/me/staff/:staffId", restrictTo("exhibitor", "admin"), c.removeStaff);
+router.post("/me/staff", protect, restrictTo("exhibitor", "admin"), validate({ body: staffSchema }), c.addStaff);
+router.patch("/me/staff/:staffId", protect, restrictTo("exhibitor", "admin"), c.updateStaff);
+router.delete("/me/staff/:staffId", protect, restrictTo("exhibitor", "admin"), c.removeStaff);
 
 // products
-router.post("/me/products", restrictTo("exhibitor", "admin"), validate({ body: productSchema }), c.upsertProduct);
-router.patch("/me/products/:productId", restrictTo("exhibitor", "admin"), validate({ body: productSchema }), c.upsertProduct);
-router.delete("/me/products/:productId", restrictTo("exhibitor", "admin"), c.removeProduct);
+router.post("/me/products", protect, restrictTo("exhibitor", "admin"), validate({ body: productSchema }), c.upsertProduct);
+router.patch("/me/products/:productId", protect, restrictTo("exhibitor", "admin"), validate({ body: productSchema }), c.upsertProduct);
+router.delete("/me/products/:productId", protect, restrictTo("exhibitor", "admin"), c.removeProduct);
 
 /* ----------------------------- admin -------------------------------- */
-router.get("/applications", restrictTo("admin", "organizer"), c.listApplications);
-router.patch("/applications/:id/review", restrictTo("admin", "organizer"), validate({ body: reviewApplicationSchema }), c.reviewApplication);
-router.patch("/:id/status", restrictTo("admin", "organizer"), c.updateExhibitorStatus);
-router.patch("/:id/profile", restrictTo("admin", "organizer", "exhibitor"), validate({ body: updateExhibitorProfileSchema }), c.updateProfile);
+router.get("/applications", protect, restrictTo("admin", "organizer"), c.listApplications);
+router.patch("/applications/:id/review", protect, restrictTo("admin", "organizer"), validate({ body: reviewApplicationSchema }), c.reviewApplication);
+router.patch("/:id/status", protect, restrictTo("admin", "organizer"), c.updateExhibitorStatus);
+router.patch("/:id/profile", protect, restrictTo("admin", "organizer", "exhibitor"), validate({ body: updateExhibitorProfileSchema }), c.updateProfile);
 
 /* -------------------- public profile (must be LAST) ------------------ */
-router.get("/:id", c.getPublicProfile);
+router.get("/:id", optionalProtect, c.getPublicProfile);
 
 export default router;

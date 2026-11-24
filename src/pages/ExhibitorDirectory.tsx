@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { EXHIBITORS, type Exhibitor } from "@/lib/data";
+import { type Exhibitor } from "@/lib/data";
 import { Badge, Button, Card, EmptyState, Reveal, SectionHeading, Select } from "@/components/ui";
 import { ExhibitorLogo } from "@/components/shared";
 import { Shell } from "@/components/SiteLayout";
@@ -42,6 +42,13 @@ export default function ExhibitorDirectory() {
   const cats = ["All", ...Array.from(new Set(exhibitors.map((e) => e.category)))];
   const countries = ["All", ...Array.from(new Set(exhibitors.map((e) => e.country)))];
 
+  const confirmedCount = exhibitors.filter((e) => e.status === "Approved").length || exhibitors.length;
+  const categoriesCount = new Set(exhibitors.map((e) => e.category)).size;
+  const countriesCount = new Set(exhibitors.map((e) => e.country)).size;
+  const avgRating = exhibitors.length > 0
+    ? (exhibitors.reduce((s, e) => s + (e.rating || 4.8), 0) / exhibitors.length).toFixed(1)
+    : "4.8";
+
   const filtered = useMemo(
     () =>
       exhibitors.filter((e) => {
@@ -81,10 +88,10 @@ export default function ExhibitorDirectory() {
           <Reveal delay={90}>
             <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               {[
-                { i: Building2, l: "Confirmed exhibitors", v: String(EXHIBITORS.filter((e) => e.status === "Approved").length) },
-                { i: LayoutList, l: "Categories", v: String(new Set(EXHIBITORS.map((e) => e.category)).size) },
-                { i: Globe2, l: "Countries", v: String(new Set(EXHIBITORS.map((e) => e.country)).size) },
-                { i: Star, l: "Average rating", v: (EXHIBITORS.reduce((s, e) => s + e.rating, 0) / EXHIBITORS.length).toFixed(1) },
+                { i: Building2, l: "Confirmed exhibitors", v: String(confirmedCount) },
+                { i: LayoutList, l: "Categories", v: String(categoriesCount) },
+                { i: Globe2, l: "Countries", v: String(countriesCount) },
+                { i: Star, l: "Average rating", v: avgRating },
               ].map((s) => (
                 <div key={s.l} className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4">
                   <span className="grid size-10 place-items-center rounded-xl bg-brand-50 text-brand-600"><s.i className="size-4.5" /></span>

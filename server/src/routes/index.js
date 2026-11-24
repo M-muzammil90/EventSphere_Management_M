@@ -16,6 +16,7 @@ import paymentRoutes from "./paymentRoutes.js";
 import orderRoutes from "./orderRoutes.js";
 import analyticsRoutes from "./analyticsRoutes.js";
 import supportRoutes from "./supportRoutes.js";
+import leadRoutes from "./leadRoutes.js";
 
 const router = Router();
 
@@ -67,5 +68,6 @@ router.use("/invoices", paymentRoutes);
 router.use("/refunds", paymentRoutes);
 router.use("/analytics", analyticsRoutes);
 router.use("/support", supportRoutes);
+router.use("/leads", leadRoutes);
 
 export default router;

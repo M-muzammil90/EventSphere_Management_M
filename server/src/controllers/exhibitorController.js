@@ -199,13 +199,28 @@ export const getDirectory = asyncHandler(async (req, res) => {
 
 /* ==================== PUBLIC PROFILE DETAIL ========================= */
 export const getPublicProfile = asyncHandler(async (req, res) => {
-  const profile = await ExhibitorProfile.findById(req.params.id)
-    .populate({ path: "user", select: "name createdAt" })
-    .lean();
+  const isMongoId = /^[0-9a-fA-F]{24}$/.test(req.params.id);
+  let profile = null;
+  if (isMongoId) {
+    profile = await ExhibitorProfile.findById(req.params.id)
+      .populate({ path: "user", select: "name createdAt email avatar" })
+      .lean();
+    if (!profile) {
+      profile = await ExhibitorProfile.findOne({ user: req.params.id })
+        .populate({ path: "user", select: "name createdAt email avatar" })
+        .lean();
+    }
+  }
+  if (!profile) {
+    const nameRx = new RegExp(`^${req.params.id.replace(/-/g, " ")}$`, "i");
+    profile = await ExhibitorProfile.findOne({ "company.name": nameRx })
+      .populate({ path: "user", select: "name createdAt email avatar" })
+      .lean();
+  }
   if (!profile) throw ApiError.notFound("Exhibitor not found");
 
   const booths = await Booth.find({ exhibitor: profile._id, status: { $in: ["reserved", "booked"] } })
-    .populate("expo", "title slug startDate venue.city status")
+    .populate("expo", "title slug startDate endDate venue status")
     .lean();
 
   // respect privacy
@@ -358,6 +373,20 @@ export const listApplications = asyncHandler(async (req, res) => {
   base = base.skip(skip).limit(l);
 
   let applications = await base.lean();
+
+  const exhibitorIds = applications.map((a) => a.exhibitor?._id).filter(Boolean);
+  const docs = await Document.find({ exhibitor: { $in: exhibitorIds }, deletedAt: { $exists: false } }).lean();
+  const docMap = new Map();
+  docs.forEach((d) => {
+    const exId = String(d.exhibitor);
+    if (!docMap.has(exId)) docMap.set(exId, []);
+    docMap.get(exId).push(d);
+  });
+
+  applications = applications.map((app) => ({
+    ...app,
+    documents: docMap.get(String(app.exhibitor?._id)) || [],
+  }));
 
   if (q) {
     const rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
@@ -614,6 +643,65 @@ export const deleteDocument = asyncHandler(async (req, res) => {
   return ApiResponse.ok(res, { deleted: true }, `${doc.originalName} removed`);
 });
 
+/* ==================== ADMIN: GET EXHIBITOR DOCUMENTS ==================== */
+export const getExhibitorDocuments = asyncHandler(async (req, res) => {
+  const isMongoId = /^[0-9a-fA-F]{24}$/.test(req.params.id);
+  let filter = isMongoId ? { exhibitor: req.params.id } : { owner: req.params.id };
+
+  if (isMongoId) {
+    const profile = await ExhibitorProfile.findById(req.params.id);
+    if (!profile) {
+      filter = { owner: req.params.id };
+    }
+  }
+
+  const docs = await Document.find({ ...filter, deletedAt: { $exists: false } })
+    .sort({ createdAt: -1 })
+    .select("-__v");
+  return ApiResponse.ok(res, docs);
+});
+
+/* ==================== ADMIN: VERIFY / APPROVE / REJECT DOCUMENT ==================== */
+export const verifyDocument = asyncHandler(async (req, res) => {
+  const { status, rejectionReason } = req.body;
+  if (!["verified", "rejected", "pending"].includes(status)) {
+    throw ApiError.badRequest("Status must be verified, rejected, or pending");
+  }
+
+  const doc = await Document.findById(req.params.id);
+  if (!doc) throw ApiError.notFound("Document not found");
+
+  doc.status = status;
+  doc.verifiedBy = req.user._id;
+  doc.verifiedAt = new Date();
+  if (rejectionReason) doc.rejectionReason = rejectionReason;
+  if (status === "verified") doc.rejectionReason = undefined;
+
+  await doc.save();
+
+  // If this document is verified, check if this exhibitor now has all required documents verified
+  if (doc.exhibitor) {
+    const allDocs = await Document.find({ exhibitor: doc.exhibitor, deletedAt: { $exists: false } });
+    const hasInc = allDocs.some((d) => d.docType === "certificate_of_incorporation" && d.status === "verified");
+    const hasIns = allDocs.some((d) => d.docType === "public_liability_insurance" && d.status === "verified");
+    if (hasInc && hasIns) {
+      await ExhibitorProfile.findByIdAndUpdate(doc.exhibitor, { verificationStatus: "verified" });
+    }
+  }
+
+  // Notify the exhibitor owner
+  if (doc.owner) {
+    await notificationService.notify(doc.owner, {
+      type: "system",
+      title: `Compliance document ${status}`,
+      body: `Your ${doc.originalName || doc.docType} has been ${status} by event administration.${rejectionReason ? ` Reason: ${rejectionReason}` : ""}`,
+      link: "/portal",
+    });
+  }
+
+  return ApiResponse.ok(res, doc, `Document marked as ${status}`);
+});
+
 /* ==================== STAFF & PRODUCTS ============================== */
 export const addStaff = asyncHandler(async (req, res) => {
   const profile = await ExhibitorProfile.findOne({ user: req.user._id });
@@ -686,5 +774,6 @@ export default {
   getMyProfile, updateMyProfile, uploadLogo, getDirectory, getPublicProfile,
   applyForExpo, getMyApplications, listApplications, reviewApplication, updateExhibitorStatus,
   uploadDocument, getMyDocuments, replaceDocument, deleteDocument,
+  getExhibitorDocuments, verifyDocument,
   addStaff, updateStaff, removeStaff, upsertProduct, removeProduct,
 };

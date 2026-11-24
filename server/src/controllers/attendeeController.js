@@ -57,7 +57,7 @@ export const listAttendees = asyncHandler(async (req, res) => {
       jobTitle: { $first: "$attendeeSnapshot.jobTitle" },
       company: { $first: "$attendeeSnapshot.company" },
       lastRegistered: { $max: "$createdAt" },
-      tickets: { $push: { expo: "$expo", ticketType: "$ticketType", status: "$status", badgeCode: "$badgeCode", total: "$pricing.total", registeredAt: "$createdAt" } },
+      tickets: { $push: { _id: "$_id", expo: "$expo", ticketType: "$ticketType", status: "$status", badgeCode: "$badgeCode", total: "$pricing.total", registeredAt: "$createdAt" } },
       totalSpend: { $sum: "$pricing.total" },
       registrationCount: { $sum: 1 },
     },

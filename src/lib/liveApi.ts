@@ -1,4 +1,4 @@
-import { get, post, patch, del } from "./api";
+import { api, get, post, patch, del } from "./api";
 import { EXPOS, SESSIONS, EXHIBITORS, BOOTHS, type Expo, type Session, type Exhibitor, type Booth } from "./data";
 import { ATTENDEES, FEEDBACK, CONVERSATIONS, type Attendee, type Feedback, type Conversation } from "./mock";
 
@@ -272,7 +272,7 @@ export async function fetchAdminExhibitors(): Promise<{ exhibitors: Exhibitor[];
         logoText: (p.company?.name || "EX").slice(0, 2).toUpperCase(),
         logoBg: "from-indigo-500 to-violet-600",
         category: p.category || "Technology",
-        booth: p.boothId || `A-${i + 1}`,
+        booth: typeof p.booth === "object" ? (p.booth?.boothId || p.booth?.name || p.booth?.id || `A-${i + 1}`) : typeof p.boothId === "object" ? (p.boothId?.boothId || `A-${i + 1}`) : (p.boothId || p.booth || `A-${i + 1}`),
         hall: p.hall || "Hall 1",
         country: p.contact?.country || "United States",
         rep: p.company?.contactPerson || p.staff?.[0]?.name || "Representative",
@@ -319,7 +319,7 @@ export async function fetchLiveExhibitors(expoId?: string): Promise<{ exhibitors
         logoText: (p.company?.name || "EX").slice(0, 2).toUpperCase(),
         logoBg: "from-indigo-500 to-violet-600",
         category: p.category || "Technology",
-        booth: p.boothId || `A-${i + 1}`,
+        booth: typeof p.booth === "object" ? (p.booth?.boothId || p.booth?.name || p.booth?.id || `A-${i + 1}`) : typeof p.boothId === "object" ? (p.boothId?.boothId || `A-${i + 1}`) : (p.boothId || p.booth || `A-${i + 1}`),
         hall: p.hall || "Hall 1",
         country: p.contact?.country || "United States",
         rep: p.company?.contactPerson || p.staff?.[0]?.name || "Representative",
@@ -412,7 +412,7 @@ export async function fetchExpoApprovedExhibitors(expoId?: string): Promise<Exhi
       logoText: (p.company?.name || "CO").slice(0, 2).toUpperCase(),
       logoBg: "from-brand-600 to-indigo-600",
       category: p.category || "Technology",
-      booth: p.boothId || p.booths?.[0]?.boothId || "TBD",
+      booth: typeof p.booth === "object" ? (p.booth?.boothId || p.booth?.name || "TBD") : typeof p.boothId === "object" ? (p.boothId?.boothId || "TBD") : (p.boothId || p.booths?.[0]?.boothId || "TBD"),
       hall: "Hall 4",
       country: p.contact?.country || "United States",
       rep: p.contact?.primaryName || "Representative",
@@ -501,6 +501,107 @@ export async function deleteMyDocument(id: string): Promise<any> {
   return await del(`/exhibitors/documents/${id}`);
 }
 
+export async function fetchExhibitorDocuments(exhibitorId: string): Promise<any[]> {
+  try {
+    const res = await get<any[]>(`/exhibitors/${exhibitorId}/documents`);
+    return res.data || [];
+  } catch (err) {
+    console.warn("fetchExhibitorDocuments error:", err);
+    return [];
+  }
+}
+
+export async function verifyLiveDocument(id: string, status: "verified" | "rejected", rejectionReason?: string): Promise<any> {
+  return await patch(`/exhibitors/documents/${id}/verify`, { status, rejectionReason });
+}
+
+/* =========================== LEADS CRUD ============================= */
+export interface LiveLead {
+  _id: string;
+  name: string;
+  email: string;
+  company: string;
+  jobTitle?: string;
+  phone?: string;
+  interest: string;
+  score: number;
+  status: "Hot" | "Warm" | "Cold" | "Nurture" | "Closed";
+  notes?: string;
+  scannedAt: string;
+}
+
+export async function fetchLiveLeads(): Promise<LiveLead[]> {
+  try {
+    const res = await get<LiveLead[]>("/leads");
+    return res.data || [];
+  } catch (err) {
+    console.warn("fetchLiveLeads error:", err);
+    return [];
+  }
+}
+
+export async function createLiveLead(payload: {
+  name: string;
+  email: string;
+  company?: string;
+  jobTitle?: string;
+  phone?: string;
+  interest?: string;
+  score?: number;
+  status?: string;
+  notes?: string;
+}): Promise<LiveLead> {
+  const res = await post<LiveLead>("/leads", payload);
+  if (!res.success || !res.data) throw new Error(res.message || "Failed to capture lead");
+  return res.data;
+}
+
+export async function updateLiveLead(id: string, payload: Partial<LiveLead>): Promise<LiveLead> {
+  const res = await patch<LiveLead>(`/leads/${id}`, payload);
+  if (!res.success || !res.data) throw new Error(res.message || "Failed to update lead");
+  return res.data;
+}
+
+export async function deleteLiveLead(id: string): Promise<any> {
+  return await del(`/leads/${id}`);
+}
+
+/* =========================== STAFF & BADGES ========================= */
+export async function addLiveStaff(payload: {
+  name: string;
+  email: string;
+  role?: string;
+  permissions?: string;
+}): Promise<any> {
+  const res = await post("/exhibitors/me/staff", payload);
+  if (!res.success) throw new Error(res.message || "Failed to add staff member");
+  return res.data;
+}
+
+export async function updateLiveStaff(staffId: string, payload: any): Promise<any> {
+  const res = await patch(`/exhibitors/me/staff/${staffId}`, payload);
+  if (!res.success) throw new Error(res.message || "Failed to update staff member");
+  return res.data;
+}
+
+export async function removeLiveStaff(staffId: string): Promise<any> {
+  const res = await del(`/exhibitors/me/staff/${staffId}`);
+  if (!res.success) throw new Error(res.message || "Failed to remove staff member");
+  return res.data;
+}
+
+/* =========================== PUBLIC EXHIBITOR PROFILE =============== */
+export async function fetchLiveExhibitorProfile(id: string): Promise<any> {
+  try {
+    const res = await get<any>(`/exhibitors/${id}`);
+    if (res.success && res.data) return res.data;
+    return null;
+  } catch (err) {
+    console.warn("fetchLiveExhibitorProfile error:", err);
+    return null;
+  }
+}
+
 /* =========================== ATTENDEES CRUD ========================= */
 export async function fetchLiveAttendees(): Promise<Attendee[]> {
   try {
@@ -508,26 +609,57 @@ export async function fetchLiveAttendees(): Promise<Attendee[]> {
     if (!res.success || !Array.isArray(res.data) || res.data.length === 0) {
       return ATTENDEES;
     }
-    return res.data.map((a: any, i: number) => ({
-      id: a._id || `AT-${i + 1}`,
-      name: a.name || a.user?.name || "Attendee",
-      email: a.email || a.user?.email || "attendee@example.com",
-      company: a.company || a.jobTitle || "Enterprise",
-      jobTitle: a.jobTitle || "Delegate",
-      country: a.address?.country || "United States",
-      ticket: (["Full Access", "Day Pass", "Exhibitor Guest", "VIP", "Press"].includes(a.activeRegistration?.ticketType) ? a.activeRegistration.ticketType : "Full Access") as Attendee["ticket"],
-      status: (a.activeRegistration?.status === "attended" ? "Checked-in" : a.activeRegistration?.status === "confirmed" ? "Confirmed" : "Confirmed") as Attendee["status"],
-      registered: a.createdAt ? new Date(a.createdAt).toISOString().split("T")[0] : "2026-03-01",
-      eventsAttended: 1,
-      sessionsAttended: a.sessionsCount || 4,
-      boothsVisited: 6,
-      spend: a.activeRegistration?.pricing?.total || 149,
-      rating: 4.9,
-      avatar: a.avatar || a.user?.avatar || "https://images.pexels.com/photos/7752805/pexels-photo-7752805.jpeg?auto=compress&cs=tinysrgb&dpr=1&h=200&w=200",
-    }));
+    const statusMap: Record<string, string> = {
+      attended: "Checked-in",
+      confirmed: "Confirmed",
+      waitlisted: "Waitlist",
+      cancelled: "Cancelled",
+    };
+    return res.data.map((a: any, i: number) => {
+      const activeReg = a.tickets?.[0] || {};
+      const regStatus = activeReg.status ? (statusMap[activeReg.status.toLowerCase()] || "Confirmed") : "Confirmed";
+      return {
+        id: a._id || `AT-${i + 1}`,
+        _id: a._id,
+        regId: activeReg._id || activeReg.regId,
+        badgeCode: activeReg.badgeCode || "—",
+        name: a.name || a.user?.name || "Attendee",
+        email: a.email || a.user?.email || "attendee@example.com",
+        company: a.company || a.jobTitle || "Enterprise",
+        jobTitle: a.jobTitle || "Delegate",
+        country: a.country || a.address?.country || "United States",
+        ticket: (activeReg.ticketType || "General") as any,
+        status: regStatus as any,
+        registered: a.lastRegistered
+          ? new Date(a.lastRegistered).toISOString().split("T")[0]
+          : a.createdAt
+          ? new Date(a.createdAt).toISOString().split("T")[0]
+          : "2026-03-01",
+        eventsAttended: a.eventsAttended || a.registrationCount || 1,
+        sessionsAttended: a.sessionsRegistered || a.sessionsCount || 0,
+        boothsVisited: 4,
+        spend: Math.round(a.totalSpend ?? (activeReg.total || 0)),
+        rating: 5.0,
+        tickets: a.tickets || [],
+        avatar:
+          a.avatar ||
+          a.user?.avatar ||
+          `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(a.name || "Attendee")}&backgroundColor=4f46e5,0ea5e9,7c3aed`,
+      };
+    });
   } catch (err) {
     console.warn("Live API /attendees fallback to static:", err);
     return ATTENDEES;
+  }
+}
+
+export async function fetchAttendeeStatsLive(): Promise<any> {
+  try {
+    const res = await get<any>("/attendees/stats");
+    return res.data || null;
+  } catch (err) {
+    console.warn("Live API /attendees/stats error:", err);
+    return null;
   }
 }
 
@@ -863,6 +995,14 @@ export async function fetchAdminRefunds(): Promise<LiveRefund[]> {
   return res.data || [];
 }
 
+export async function deleteLivePayment(id: string): Promise<any> {
+  const res = await del<any>(`/payments/admin/${id}`);
+  if (!res.success) {
+    throw new Error(res.message || "Failed to delete payment record");
+  }
+  return res.data;
+}
+
 export async function reviewLiveRefund(refundId: string, action: "APPROVE" | "REJECT", adminNotes?: string): Promise<any> {
   const res = await patch<any>(`/payments/refund/${refundId}/review`, { action, adminNotes });
   if (!res.success) {
@@ -873,6 +1013,42 @@ export async function reviewLiveRefund(refundId: string, action: "APPROVE" | "RE
 
 export function getInvoicePdfUrl(invoiceIdOrPaymentId: string): string {
   return `/api/v1/payments/invoice/${invoiceIdOrPaymentId}/pdf`;
+}
+
+/**
+ * Downloads invoice PDF via authenticated API call as a Blob to prevent 401 Unauthorized
+ * errors on direct browser anchor tag navigation.
+ */
+export async function downloadInvoicePdfBlob(
+  invoiceIdOrPaymentId: string,
+  customFilename?: string
+): Promise<void> {
+  try {
+    const res = await api.get(`/payments/invoice/${invoiceIdOrPaymentId}/pdf`, {
+      responseType: "blob",
+    });
+    const blob = new Blob([res.data], { type: "application/pdf" });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = customFilename || `Invoice-${invoiceIdOrPaymentId}.pdf`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+  } catch (err: any) {
+    let msg = "Could not download invoice PDF. Make sure you are logged in.";
+    if (err.raw?.response?.data instanceof Blob) {
+      try {
+        const text = await err.raw.response.data.text();
+        const json = JSON.parse(text);
+        msg = json.message || msg;
+      } catch {}
+    } else if (err.message) {
+      msg = err.message;
+    }
+    throw new Error(msg);
+  }
 }
 
 /* ============================ REALTIME MESSAGING ===================== */
@@ -1036,3 +1212,224 @@ export async function updateLiveTicketStatus(ticketId: string, payload: { status
   }
   return res.data;
 }
+
+/* ============================ ATTENDEE & REGISTRATIONS ======================= */
+export interface LiveRegistration {
+  _id: string;
+  expo: {
+    _id: string;
+    title: string;
+    slug?: string;
+    banner?: { url?: string };
+    startDate?: string;
+    endDate?: string;
+    venue?: { name?: string; city?: string; hall?: string };
+    status?: string;
+  };
+  ticketType: "General" | "Standard" | "VIP" | "Workshop";
+  status: "pending_payment" | "confirmed" | "waitlisted" | "cancelled" | "attended" | "no_show";
+  badgeCode?: string;
+  pricing?: {
+    unitPrice: number;
+    total: number;
+    currency: string;
+  };
+  createdAt: string;
+}
+
+export async function fetchMyRegistrations(): Promise<LiveRegistration[]> {
+  try {
+    const res = await get<LiveRegistration[]>("/registrations/mine");
+    return res.data || [];
+  } catch (err) {
+    console.warn("fetchMyRegistrations error:", err);
+    return [];
+  }
+}
+
+export async function registerForExpoLive(payload: {
+  expo: string;
+  ticketType?: "General" | "Standard" | "VIP" | "Workshop";
+  attendee: {
+    name: string;
+    email: string;
+    company?: string;
+    jobTitle?: string;
+    phone?: string;
+  };
+  consent?: {
+    terms?: boolean;
+    marketing?: boolean;
+    dataProcessing?: boolean;
+  };
+}): Promise<any> {
+  const res = await post<any>("/registrations", {
+    ...payload,
+    ticketType: payload.ticketType || "Standard",
+    consent: {
+      terms: true,
+      marketing: false,
+      dataProcessing: true,
+      ...payload.consent,
+    },
+  });
+  if (!res.success) {
+    throw new Error(res.message || "Failed to register for expo");
+  }
+  return res.data;
+}
+
+export async function cancelRegistrationLive(id: string, reason?: string): Promise<any> {
+  const res = await patch<any>(`/registrations/${id}/cancel`, { reason });
+  if (!res.success) {
+    throw new Error(res.message || "Failed to cancel registration");
+  }
+  return res.data;
+}
+
+export async function checkInLiveAttendee(badgeCode: string): Promise<any> {
+  const res = await post<any>("/registrations/check-in", { badgeCode });
+  if (!res.success) {
+    throw new Error(res.message || "Failed to check in attendee");
+  }
+  return res.data;
+}
+
+/* ============================ ATTENDEE APPOINTMENTS ======================= */
+export interface LiveAppointment {
+  _id: string;
+  expo?: {
+    _id: string;
+    title: string;
+    venue?: any;
+    startDate?: string;
+    endDate?: string;
+  };
+  requester?: {
+    _id: string;
+    name: string;
+    avatar?: string;
+    company?: string;
+    email?: string;
+  };
+  recipient?: {
+    _id: string;
+    name: string;
+    avatar?: string;
+    email?: string;
+  };
+  exhibitor?: {
+    _id: string;
+    company?: { name: string };
+    logo?: { url?: string };
+    tier?: string;
+  };
+  title?: string;
+  date: string;
+  startTime: string;
+  durationMinutes: number;
+  type: "Meeting" | "Demo" | "Call" | "Site visit";
+  location?: string;
+  agenda?: string;
+  status: "pending" | "confirmed" | "declined" | "cancelled" | "completed" | "rescheduled";
+  initiatedBy: "attendee" | "exhibitor";
+  createdAt: string;
+}
+
+export async function fetchMyAppointments(): Promise<LiveAppointment[]> {
+  try {
+    const res = await get<LiveAppointment[]>("/appointments/mine?limit=50");
+    return res.data || [];
+  } catch (err) {
+    console.warn("fetchMyAppointments error:", err);
+    return [];
+  }
+}
+
+export async function createAppointmentLive(payload: {
+  expo: string;
+  exhibitor?: string;
+  recipient?: string;
+  title?: string;
+  date: string | Date;
+  startTime: string;
+  durationMinutes?: number;
+  type?: "Meeting" | "Demo" | "Call" | "Site visit";
+  location?: string;
+  agenda?: string;
+  initiatedBy?: "attendee" | "exhibitor";
+}): Promise<any> {
+  const res = await post<any>("/appointments", payload);
+  if (!res.success) {
+    throw new Error(res.message || "Failed to request appointment");
+  }
+  return res.data;
+}
+
+export async function cancelAppointmentLive(id: string, reason?: string): Promise<any> {
+  const res = await patch<any>(`/appointments/${id}/cancel`, { reason });
+  if (!res.success) {
+    throw new Error(res.message || "Failed to cancel appointment");
+  }
+  return res.data;
+}
+
+/* ============================ ATTENDEE FEEDBACK ======================= */
+export async function submitFeedbackLive(payload: {
+  targetType: "expo" | "session" | "exhibitor";
+  expo?: string;
+  session?: string;
+  exhibitor?: string;
+  rating: number;
+  title?: string;
+  body: string;
+  category?: "Content" | "Logistics" | "Venue" | "Technology" | "Catering" | "General";
+  wouldRecommend?: boolean;
+}): Promise<any> {
+  const res = await post<any>("/feedback", payload);
+  if (!res.success) {
+    throw new Error(res.message || "Failed to submit feedback");
+  }
+  return res.data;
+}
+
+export async function fetchMyFeedback(): Promise<any[]> {
+  try {
+    const res = await get<any[]>("/feedback/mine");
+    return res.data || [];
+  } catch (err) {
+    console.warn("fetchMyFeedback error:", err);
+    return [];
+  }
+}
+
+/* ============================ NOTIFICATIONS ======================= */
+export interface LiveNotification {
+  _id: string;
+  title: string;
+  body: string;
+  type: string;
+  priority: "low" | "normal" | "high" | "urgent";
+  read: boolean;
+  createdAt: string;
+  link?: string;
+}
+
+export async function fetchLiveNotifications(): Promise<LiveNotification[]> {
+  try {
+    const res = await get<LiveNotification[]>("/notifications?limit=50");
+    return res.data || [];
+  } catch (err) {
+    console.warn("fetchLiveNotifications error:", err);
+    return [];
+  }
+}
+
+export async function markNotificationRead(id: string): Promise<any> {
+  return await patch(`/notifications/${id}/read`, {});
+}
+
+export async function markAllNotificationsRead(): Promise<any> {
+  return await patch("/notifications/read-all", {});
+}
+

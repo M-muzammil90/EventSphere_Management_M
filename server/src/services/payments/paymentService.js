@@ -78,7 +78,15 @@ class PaymentService {
     });
 
     if (initResult.status === "BLOCKED_BY_CREDENTIALS") {
-      return initResult;
+      const devMode = process.env.NODE_ENV !== "production" || process.env.DEV_PAYMENT_MODE === "true";
+      if (devMode) {
+        initResult.status = "SANDBOX_SIMULATION";
+        initResult.transactionId = `TXN-${providerName.toUpperCase()}-SANDBOX-${Date.now()}`;
+        initResult.message = `${providerName.toUpperCase()} Sandbox Active: Official merchant keys not configured in local .env. Order initiated in sandbox mode.`;
+        initResult.sandbox = true;
+      } else {
+        return initResult;
+      }
     }
 
     // Create or update pending Payment record
@@ -128,7 +136,8 @@ class PaymentService {
     const provider = this.getProvider(activeProviderName);
     let verification = null;
 
-    if (testVerified && process.env.NODE_ENV !== "production") {
+    const providerConfig = provider.validateConfig();
+    if (testVerified || (!providerConfig.valid && process.env.NODE_ENV !== "production")) {
       // Safe developer testing path when live merchant credentials are unavailable
       verification = {
         verified: true,

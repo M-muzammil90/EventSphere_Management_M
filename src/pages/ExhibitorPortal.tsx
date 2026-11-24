@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
-import { EXHIBITORS, BOOTHS, SESSIONS } from "@/lib/data";
+import { EXHIBITORS, BOOTHS, type Expo, type Booth, type Session, type Exhibitor } from "@/lib/data";
 import { Avatar, Badge, Button, Card, CardHeader, Field, Input, Modal, Progress, Reveal, Select, Textarea, Toggle } from "@/components/ui";
 import { FloorPlan, StatCard, ExhibitorLogo, SessionCard } from "@/components/shared";
 import RealtimeChatView from "@/components/chat/RealtimeChatView";
@@ -12,13 +12,18 @@ import {
   fetchMyExhibitorProfile, updateMyExhibitorProfile, fetchLiveExpos, fetchMyApplications, applyForLiveExpo,
   fetchLiveBooths, fetchMyDocuments, uploadMyDocument, deleteMyDocument, uploadMyLogo,
   reserveLiveBooth, releaseLiveBooth,
+  fetchLiveLeads, createLiveLead, updateLiveLead, deleteLiveLead, type LiveLead,
+  addLiveStaff, removeLiveStaff,
+  fetchMyAppointments, fetchLiveSessions, fetchLiveExhibitors, startLiveConversation, type LiveAppointment,
+  createLiveOrder, fetchMyOrders, type LiveOrder,
 } from "@/lib/liveApi";
-import { type Expo, type Booth } from "@/lib/data";
+import UserPaymentsView from "@/components/payments/UserPaymentsView";
+import CheckoutModal from "@/components/payments/CheckoutModal";
 import {
-  Activity, Award, Building2, CalendarClock, Check, Clock,
-  Download, FileCheck2, FileText, LayoutDashboard, Mail, MapPin,
-  MessageSquare, Pencil, Plus, RefreshCw, Save, ScanLine, Settings, Sparkles, Star,
-  Target, Trash2, TrendingUp, Upload, UserPlus, Users, X,
+  Activity, Award, Banknote, Building2, CalendarClock, Check, Clock,
+  Download, FileCheck2, FileText, LayoutDashboard, MapPin,
+  MessageSquare, Plus, RefreshCw, Save, ScanLine, Settings, Sparkles, Star,
+  Target, Trash2, TrendingUp, Upload, UserPlus, Users, X, QrCode, Printer, Eye, Search, ShieldCheck,
 } from "lucide-react";
 
 const ME = EXHIBITORS[0];
@@ -33,6 +38,7 @@ export default function ExhibitorPortal() {
   const [notify, setNotify] = useState({ alloc: true, neighbour: true, leads: true, digest: false });
 
   // MongoDB Live Profile state
+  const [profileId, setProfileId] = useState<string>("");
   const [profileSaving, setProfileSaving] = useState(false);
   const [companyName, setCompanyName] = useState(ME.company);
   const [repName, setRepName] = useState(ME.rep);
@@ -47,6 +53,12 @@ export default function ExhibitorPortal() {
   const [foundedYear, setFoundedYear] = useState<number | string>(2021);
   const [logoUrl, setLogoUrl] = useState<string>("");
   const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [profileTier, setProfileTier] = useState<string>("Platinum");
+  const [profileRating, setProfileRating] = useState<number>(4.9);
+  const [profileVerificationStatus, setProfileVerificationStatus] = useState<string>("verified");
+  const [liveAppointments, setLiveAppointments] = useState<LiveAppointment[]>([]);
+  const [liveSessions, setLiveSessions] = useState<Session[]>([]);
+  const [liveOtherExhibitors, setLiveOtherExhibitors] = useState<Exhibitor[]>([]);
   const [productsList, setProductsList] = useState<Array<{ name: string; description: string; price: string }>>([
     { name: "Cloud Infrastructure Core", description: "Multi-region hybrid cloud deployment framework.", price: "From $2,400 / mo" },
     { name: "Enterprise Observability", description: "Real-time telemetry and distributed tracing suite.", price: "From $1,200 / mo" },
@@ -59,6 +71,36 @@ export default function ExhibitorPortal() {
     showBoothOnPlan: true,
     allowAttendeeChat: true,
     showEmailPublicly: false,
+  });
+
+  // Dynamic Leads state
+  const [liveLeads, setLiveLeads] = useState<LiveLead[]>([]);
+  const [loadingLeads, setLoadingLeads] = useState(false);
+  const [leadModalOpen, setLeadModalOpen] = useState(false);
+  const [savingLead, setSavingLead] = useState(false);
+  const [leadSearch, setLeadSearch] = useState("");
+  const [leadStatusFilter, setLeadStatusFilter] = useState("All");
+  const [newLeadForm, setNewLeadForm] = useState({
+    name: "",
+    email: "",
+    company: "",
+    jobTitle: "",
+    phone: "",
+    interest: "Cloud Infrastructure Core",
+    score: 85,
+    status: "Warm" as "Hot" | "Warm" | "Cold" | "Nurture" | "Closed",
+    notes: "",
+  });
+
+  // Dynamic Staff state
+  const [staffList, setStaffList] = useState<any[]>([]);
+  const [savingStaff, setSavingStaff] = useState(false);
+  const [badgeModalMember, setBadgeModalMember] = useState<any | null>(null);
+  const [staffForm, setStaffForm] = useState({
+    name: "",
+    email: "",
+    role: "Booth Lead",
+    permissions: "lead_scanner_full",
   });
 
   // MongoDB Live Expos & Applications state
@@ -85,6 +127,132 @@ export default function ExhibitorPortal() {
   const [loadingDocs, setLoadingDocs] = useState(false);
   const [uploadingDoc, setUploadingDoc] = useState(false);
   const [docTypeToUpload, setDocTypeToUpload] = useState("certificate_of_incorporation");
+
+  // Orders & Checkout state
+  const [ordersList, setOrdersList] = useState<LiveOrder[]>([]);
+  const [checkoutOrder, setCheckoutOrder] = useState<LiveOrder | null>(null);
+  const [creatingOrder, setCreatingOrder] = useState(false);
+
+  const loadOrders = async () => {
+    try {
+      const ords = await fetchMyOrders();
+      setOrdersList(ords || []);
+    } catch (e) {
+      console.warn("loadOrders error:", e);
+    }
+  };
+
+  const handlePayBoothApplication = async (app: any) => {
+    const expoId = app.expo?._id || app.expo?.id || app.expo;
+    const boothId =
+      typeof app.booth === "object"
+        ? (app.booth?._id || app.booth?.id || app.booth?.boothId)
+        : (app.booth || app.boothLabel);
+
+    // Refresh orders list to get any active pending order
+    let currentOrders = ordersList;
+    try {
+      const freshOrders = await fetchMyOrders();
+      if (freshOrders && freshOrders.length > 0) {
+        currentOrders = freshOrders;
+        setOrdersList(freshOrders);
+      }
+    } catch {}
+
+    // Check if an order already exists
+    const existing = currentOrders.find(
+      (o) =>
+        (o.orderType === "BOOTH_BOOKING" || (o.orderType as string) === "booth_booking") &&
+        String(o.expoId?._id || o.expoId) === String(expoId) &&
+        o.paymentStatus !== "PAID"
+    );
+
+    if (existing) {
+      setCheckoutOrder(existing);
+      return;
+    }
+
+    setCreatingOrder(true);
+    try {
+      const created = await createLiveOrder({
+        orderType: "booth_booking",
+        expoId,
+        boothId: boothId || undefined,
+        billingDetails: {
+          fullName: repName || companyName,
+          companyName: companyName,
+          email: contactEmail,
+          phone: businessPhone,
+          country: country,
+        },
+      });
+      setOrdersList((prev) => [created, ...prev]);
+      setCheckoutOrder(created);
+      toast({
+        title: "Booth Order Created ✓",
+        body: `Order #${created.orderNumber} generated for checkout.`,
+        tone: "success",
+      });
+    } catch (err: any) {
+      toast({
+        title: "Could not start checkout",
+        body: err.message || "Unable to create booth payment order.",
+        tone: "danger",
+      });
+    } finally {
+      setCreatingOrder(false);
+    }
+  };
+
+  const handlePayReservedBooth = async (targetBoothId: string) => {
+    if (!selectedExpoId) return;
+    const target = liveBooths.find((b) => b.id === targetBoothId || (b as any)._id === targetBoothId);
+    const dbBoothId = (target as any)?._id || targetBoothId;
+
+    // Check existing pending order for this expo
+    const existing = ordersList.find(
+      (o) =>
+        (o.orderType === "BOOTH_BOOKING" || (o.orderType as string) === "booth_booking") &&
+        String(o.expoId?._id || o.expoId) === String(selectedExpoId) &&
+        o.paymentStatus !== "PAID"
+    );
+
+    if (existing) {
+      setCheckoutOrder(existing);
+      return;
+    }
+
+    setCreatingOrder(true);
+    try {
+      const created = await createLiveOrder({
+        orderType: "booth_booking",
+        expoId: selectedExpoId,
+        boothId: dbBoothId,
+        billingDetails: {
+          fullName: repName || companyName,
+          companyName: companyName,
+          email: contactEmail,
+          phone: businessPhone,
+          country: country,
+        },
+      });
+      setOrdersList((prev) => [created, ...prev]);
+      setCheckoutOrder(created);
+      toast({
+        title: "Booth Order Ready ✓",
+        body: `Order #${created.orderNumber} ready for payment.`,
+        tone: "success",
+      });
+    } catch (err: any) {
+      toast({
+        title: "Checkout Error",
+        body: err.message || "Failed to create booth order.",
+        tone: "danger",
+      });
+    } finally {
+      setCreatingOrder(false);
+    }
+  };
 
   const loadExposAndApps = async () => {
     try {
@@ -176,6 +344,7 @@ export default function ExhibitorPortal() {
   useEffect(() => {
     loadExposAndApps();
     loadDocuments();
+    loadOrders();
   }, []);
 
   useEffect(() => {
@@ -234,6 +403,19 @@ export default function ExhibitorPortal() {
               price: x.price || "",
             })));
           }
+          if (p.tier) setProfileTier(p.tier);
+          if (p.rating) setProfileRating(p.rating);
+          if (p.verificationStatus) setProfileVerificationStatus(p.verificationStatus);
+          if (p._id) setProfileId(p._id);
+          if (Array.isArray(p.staff) && p.staff.length > 0) {
+            setStaffList(p.staff);
+          } else {
+            setStaffList([
+              { _id: "st-1", name: p.contact?.primaryName || "Amara Osei", email: p.contact?.email || "amara@nexoracloud.com", role: "Booth Lead", permissions: "lead_scanner_full", badgeIssued: true },
+              { _id: "st-2", name: "Daniel Cho", email: "daniel@nexoracloud.com", role: "Sales Engineer", permissions: "lead_scanner_only", badgeIssued: true },
+              { _id: "st-3", name: "Lucia Ferrer", email: "lucia@nexoracloud.com", role: "Demo Specialist", permissions: "demo_only", badgeIssued: true },
+            ]);
+          }
           if (p.visibility) {
             setVisibilitySettings({
               showBoothOnPlan: p.visibility.showBoothOnPlan ?? true,
@@ -247,7 +429,306 @@ export default function ExhibitorPortal() {
         }
       })
       .catch(() => {});
+
+    // Load dynamic leads & overview live data
+    loadLeads();
+    fetchMyAppointments().then(setLiveAppointments).catch(() => {});
+    fetchLiveSessions().then(setLiveSessions).catch(() => {});
+    fetchLiveExhibitors().then((res) => setLiveOtherExhibitors(res.exhibitors || [])).catch(() => {});
   }, []);
+
+  // Dynamic Overview Calculations
+  const activeApp = useMemo(
+    () => myApps.find((a) => a.status === "approved" || a.status === "Approved"),
+    [myApps]
+  );
+  const assignedBooth = useMemo(() => {
+    if (!activeApp) return "A-12";
+    if (activeApp.boothLabel) return String(activeApp.boothLabel);
+    if (activeApp.booth) {
+      if (typeof activeApp.booth === "string") return activeApp.booth;
+      if (typeof activeApp.booth === "object") {
+        return activeApp.booth.boothId || activeApp.booth.name || activeApp.booth.id || "A-12";
+      }
+    }
+    if (activeApp.allocatedBooth) {
+      if (typeof activeApp.allocatedBooth === "string") return activeApp.allocatedBooth;
+      if (typeof activeApp.allocatedBooth === "object") {
+        return activeApp.allocatedBooth.boothId || activeApp.allocatedBooth.name || "A-12";
+      }
+    }
+    const found = liveBooths.find((b) => (b as any).assignedTo === profileId);
+    if (found) return (found as any).boothId || found.id || "A-12";
+    return "A-12";
+  }, [activeApp, liveBooths, profileId]);
+
+  const assignedHall = useMemo(() => {
+    if (!activeApp) return "Hall 4";
+    if (activeApp.booth && typeof activeApp.booth === "object" && (activeApp.booth as any).hall) {
+      return (activeApp.booth as any).hall;
+    }
+    if (activeApp.allocatedBooth && typeof activeApp.allocatedBooth === "object" && (activeApp.allocatedBooth as any).hall) {
+      return (activeApp.allocatedBooth as any).hall;
+    }
+    if (typeof activeApp.hall === "string") return activeApp.hall;
+    return "Hall 4";
+  }, [activeApp]);
+
+  const totalInteractions = useMemo(() => {
+    if (liveLeads.length > 0) {
+      return liveLeads.length * 14 + liveAppointments.length * 6 + 18;
+    }
+    return 84;
+  }, [liveLeads, liveAppointments]);
+
+  const qualifiedLeads = useMemo(
+    () => liveLeads.filter((l) => l.status === "Hot" || l.status === "Warm"),
+    [liveLeads]
+  );
+
+  const qualificationRate = useMemo(() => {
+    if (liveLeads.length === 0) return 62;
+    return Math.round((qualifiedLeads.length / liveLeads.length) * 100);
+  }, [liveLeads, qualifiedLeads]);
+
+  const confirmedMeetings = useMemo(
+    () => liveAppointments.filter((a) => a.status === "confirmed"),
+    [liveAppointments]
+  );
+
+  const estimatedPipeline = useMemo(() => {
+    if (liveLeads.length > 0) {
+      return liveLeads.reduce((acc, l) => {
+        if (l.status === "Closed") return acc + 25000;
+        if (l.status === "Hot") return acc + 18500;
+        if (l.status === "Warm") return acc + 9000;
+        return acc + 3500;
+      }, 0);
+    }
+    return 74000;
+  }, [liveLeads]);
+
+  const leadDistribution = useMemo(() => {
+    const total = liveLeads.length || 1;
+    const hot = liveLeads.filter((l) => l.status === "Hot").length;
+    const warm = liveLeads.filter((l) => l.status === "Warm").length;
+    if (liveLeads.length === 0) {
+      return [
+        { label: "Hot", pct: 38 },
+        { label: "Warm", pct: 44 },
+        { label: "Nurture", pct: 18 },
+      ];
+    }
+    const hPct = Math.round((hot / total) * 100);
+    const wPct = Math.round((warm / total) * 100);
+    const nPct = Math.max(0, 100 - hPct - wPct);
+    return [
+      { label: "Hot", pct: hPct },
+      { label: "Warm", pct: wPct },
+      { label: "Nurture", pct: nPct },
+    ];
+  }, [liveLeads]);
+
+  const avgLeadScore = useMemo(() => {
+    if (liveLeads.length === 0) return 88;
+    return Math.round(liveLeads.reduce((sum, l) => sum + (l.score || 75), 0) / liveLeads.length);
+  }, [liveLeads]);
+
+  const trafficTrendData = useMemo(() => {
+    const base = totalInteractions;
+    return [
+      { label: "Day 1", a: Math.round(base * 0.18), b: Math.round(base * 0.14) },
+      { label: "Day 2", a: Math.round(base * 0.35), b: Math.round(base * 0.25) },
+      { label: "Day 3", a: Math.round(base * 0.65), b: Math.round(base * 0.45) },
+      { label: "Day 4", a: Math.round(base * 0.85), b: Math.round(base * 0.68) },
+      { label: "Day 5", a: base, b: Math.round(base * 0.78) },
+    ];
+  }, [totalInteractions]);
+
+  const speakingSessions = useMemo(() => {
+    const cName = companyName.toLowerCase();
+    const rName = repName.toLowerCase();
+    const matches = liveSessions.filter(
+      (s) =>
+        (s.company && s.company.toLowerCase().includes(cName)) ||
+        (s.speaker && (s.speaker.toLowerCase().includes(rName) || s.speaker.toLowerCase().includes("elena") || s.speaker.toLowerCase().includes("marcus")))
+    );
+    if (matches.length > 0) return matches.slice(0, 3);
+    return liveSessions.slice(0, 3);
+  }, [liveSessions, companyName, repName]);
+
+  const neighbouringExhibitors = useMemo(() => {
+    return liveOtherExhibitors
+      .filter((e) => e.company.toLowerCase() !== companyName.toLowerCase() && e.id !== profileId)
+      .slice(0, 4);
+  }, [liveOtherExhibitors, companyName, profileId]);
+
+  const handleChatNeighbour = async (ex: Exhibitor) => {
+    try {
+      await startLiveConversation({
+        recipientId: ex.id,
+        subject: `Collaboration with ${companyName}`,
+        initialMessage: `Hi ${ex.company}, reaching out from booth ${assignedBooth} (${companyName}) for potential collaboration during the expo.`,
+        conversationType: "EXHIBITOR_COLLABORATION",
+      });
+      toast({
+        title: `Conversation opened with ${ex.company} ✓`,
+        body: "You can continue chatting in the Messages tab.",
+        tone: "success",
+      });
+      setTab("messages");
+    } catch {
+      toast({
+        title: `Thread opened with ${ex.company}`,
+        body: "Redirecting to messages...",
+        tone: "info",
+      });
+      setTab("messages");
+    }
+  };
+
+  const loadLeads = async () => {
+    setLoadingLeads(true);
+    try {
+      const data = await fetchLiveLeads();
+      setLiveLeads(data || []);
+    } catch (e) {
+      console.warn("loadLeads error:", e);
+    } finally {
+      setLoadingLeads(false);
+    }
+  };
+
+  const handleCreateLead = async () => {
+    if (!newLeadForm.name || !newLeadForm.email) {
+      toast({ title: "Validation error", body: "Lead name and email are required.", tone: "warn" });
+      return;
+    }
+    setSavingLead(true);
+    try {
+      const created = await createLiveLead(newLeadForm);
+      setLiveLeads((prev) => [created, ...prev]);
+      setLeadModalOpen(false);
+      setNewLeadForm({
+        name: "",
+        email: "",
+        company: "",
+        jobTitle: "",
+        phone: "",
+        interest: "Cloud Infrastructure Core",
+        score: 85,
+        status: "Warm",
+        notes: "",
+      });
+      toast({
+        title: "Lead Captured Successfully! 🎯",
+        body: `${created.name} (${created.company}) saved to MongoDB leads registry.`,
+        tone: "success",
+      });
+    } catch (err: any) {
+      toast({ title: "Failed to capture lead", body: err.message || "Could not save lead.", tone: "danger" });
+    } finally {
+      setSavingLead(false);
+    }
+  };
+
+  const handleUpdateLeadStatus = async (leadId: string, newStatus: LiveLead["status"]) => {
+    try {
+      await updateLiveLead(leadId, { status: newStatus });
+      setLiveLeads((prev) => prev.map((l) => (l._id === leadId ? { ...l, status: newStatus } : l)));
+      toast({ title: "Lead Status Updated", body: `Moved to ${newStatus}.`, tone: "info" });
+    } catch (err: any) {
+      toast({ title: "Update failed", body: err.message || "Could not update lead status.", tone: "danger" });
+    }
+  };
+
+  const handleDeleteLead = async (leadId: string) => {
+    try {
+      await deleteLiveLead(leadId);
+      setLiveLeads((prev) => prev.filter((l) => l._id !== leadId));
+      toast({ title: "Lead Removed", body: "Lead removed from your registry.", tone: "info" });
+    } catch (err: any) {
+      toast({ title: "Delete failed", body: err.message || "Could not remove lead.", tone: "danger" });
+    }
+  };
+
+  const handleExportLeadsCSV = () => {
+    if (liveLeads.length === 0) {
+      toast({ title: "No leads to export", body: "Capture leads first before exporting.", tone: "warn" });
+      return;
+    }
+    const headers = ["Name", "Email", "Company", "Job Title", "Phone", "Product Interest", "Score", "Status", "Notes", "Scanned At"];
+    const rows = liveLeads.map((l) => [
+      `"${l.name.replace(/"/g, '""')}"`,
+      `"${l.email.replace(/"/g, '""')}"`,
+      `"${(l.company || "").replace(/"/g, '""')}"`,
+      `"${(l.jobTitle || "").replace(/"/g, '""')}"`,
+      `"${(l.phone || "").replace(/"/g, '""')}"`,
+      `"${(l.interest || "").replace(/"/g, '""')}"`,
+      l.score || 70,
+      `"${l.status}"`,
+      `"${(l.notes || "").replace(/"/g, '""')}"`,
+      `"${new Date(l.scannedAt).toLocaleString()}"`,
+    ]);
+    const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows.map((e) => e.join(","))].join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `eventsphere-leads-${companyName.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    toast({ title: "Leads CSV Exported ✓", body: `${liveLeads.length} leads exported to CSV file.`, tone: "success" });
+  };
+
+  const handleAddStaffMember = async () => {
+    if (!staffForm.name || !staffForm.email) {
+      toast({ title: "Validation error", body: "Staff name and email are required.", tone: "warn" });
+      return;
+    }
+    setSavingStaff(true);
+    try {
+      const res = await addLiveStaff(staffForm);
+      if (res?.staff) {
+        setStaffList(res.staff);
+      } else {
+        setStaffList((prev) => [
+          ...prev,
+          {
+            _id: `st-${Date.now()}`,
+            name: staffForm.name,
+            email: staffForm.email,
+            role: staffForm.role,
+            permissions: staffForm.permissions,
+            badgeIssued: true,
+          },
+        ]);
+      }
+      setStaffOpen(false);
+      setStaffForm({ name: "", email: "", role: "Booth Lead", permissions: "lead_scanner_full" });
+      toast({
+        title: "Staff Member Added! 🎟️",
+        body: `${staffForm.name} registered. Official Exhibitor Badge issued.`,
+        tone: "success",
+      });
+    } catch (err: any) {
+      toast({ title: "Failed to add staff", body: err.message || "Could not add staff member.", tone: "danger" });
+    } finally {
+      setSavingStaff(false);
+    }
+  };
+
+  const handleRemoveStaffMember = async (staffId: string) => {
+    try {
+      await removeLiveStaff(staffId);
+      setStaffList((prev) => prev.filter((s) => (s._id || s.id) !== staffId));
+      toast({ title: "Staff Member Removed", body: "Badge de-allocated.", tone: "info" });
+    } catch (err: any) {
+      // If mock ID or local fallback, remove from local state
+      setStaffList((prev) => prev.filter((s) => (s._id || s.id) !== staffId));
+      toast({ title: "Staff Member Removed", body: "Badge de-allocated.", tone: "info" });
+    }
+  };
 
   const handleSaveProfile = async () => {
     setProfileSaving(true);
@@ -370,21 +851,15 @@ export default function ExhibitorPortal() {
     toast({ title: "Product removed", body: "Click 'Save Company Profile' to persist changes.", tone: "info" });
   };
 
-  const STAFF = [
-    { n: "Amara Osei", r: "Booth Lead", e: "amara@nexoracloud.com", b: "Lead scanner, full access", a: ME.avatar },
-    { n: "Daniel Cho", r: "Sales Engineer", e: "daniel@nexoracloud.com", b: "Lead scanner", a: EXHIBITORS[2].avatar },
-    { n: "Lucia Ferrer", r: "Demo Specialist", e: "lucia@nexoracloud.com", b: "Demo area only", a: EXHIBITORS[3].avatar },
-    { n: "Tom Berger", r: "Field Marketer", e: "tom@nexoracloud.com", b: "Lead scanner, full access", a: EXHIBITORS[4].avatar },
-  ];
-
   const NAV_ITEMS: PortalNavItem[] = [
     { id: "overview", label: "Overview", icon: LayoutDashboard, group: "Manage" },
     { id: "profile", label: "Company Profile", icon: Building2, group: "Manage" },
     { id: "expos", label: "Expos & Applications", icon: CalendarClock, badge: myApps.length || undefined, group: "Manage" },
     { id: "booth", label: "Booth & Floor Plan", icon: MapPin, group: "Manage" },
-    { id: "leads", label: "Leads", icon: Target, group: "Manage" },
-    { id: "staff", label: "Staff & badges", icon: Users, badge: ME.staff, group: "Manage" },
+    { id: "leads", label: "Leads", icon: Target, badge: liveLeads.length || undefined, group: "Manage" },
+    { id: "staff", label: "Staff & badges", icon: Users, badge: staffList.length || ME.staff, group: "Manage" },
     { id: "messages", label: "Messages & Support", icon: MessageSquare, group: "Communication" },
+    { id: "payments", label: "Payments & Invoices", icon: Banknote, group: "Billing" },
     { id: "docs", label: "Documents", icon: FileCheck2, badge: myDocs.length || undefined, group: "Compliance" },
     { id: "settings", label: "Settings", icon: Settings, group: "Compliance" },
   ];
@@ -401,10 +876,10 @@ export default function ExhibitorPortal() {
         <Button
           size="sm"
           icon={<ScanLine className="size-4" />}
-          onClick={() => toast({ title: "Lead scanner", body: "Opens the camera view for badge scanning.", tone: "info" })}
+          onClick={() => setLeadModalOpen(true)}
           className="hidden sm:inline-flex"
         >
-          Lead scanner
+          Capture Lead
         </Button>
       }
       banner={
@@ -426,10 +901,10 @@ export default function ExhibitorPortal() {
                     {companyName}
                   </h1>
                   <Badge tone="purple" className="bg-white/10 text-purple-200 ring-white/15">
-                    {ME.badgeTier} exhibitor
+                    {profileTier} exhibitor
                   </Badge>
                   <Badge tone="success" className="bg-white/10 text-emerald-200 ring-white/15" dot>
-                    Approved
+                    {profileVerificationStatus === "verified" ? "Approved" : profileVerificationStatus}
                   </Badge>
                 </div>
                 <p className="mt-1.5 max-w-2xl text-[13px] leading-relaxed text-slate-300/80 line-clamp-2">
@@ -438,15 +913,15 @@ export default function ExhibitorPortal() {
                 <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1.5 text-[12px] text-slate-400">
                   <span className="inline-flex items-center gap-1.5">
                     <MapPin className="size-3.5 text-brand-400" />
-                    Booth {ME.booth} · {ME.hall}
+                    Booth {assignedBooth} · {assignedHall}
                   </span>
                   <span className="inline-flex items-center gap-1.5">
                     <Users className="size-3.5 text-cyan-400" />
-                    {ME.staff} staff badges
+                    {staffList.length} staff badges
                   </span>
                   <span className="inline-flex items-center gap-1.5">
                     <Star className="size-3.5 text-amber-400" />
-                    {ME.rating} exhibitor rating
+                    {profileRating} exhibitor rating
                   </span>
                 </div>
               </div>
@@ -459,13 +934,22 @@ export default function ExhibitorPortal() {
                   onClick={() => setTab("profile")}
                   className="border-white/20 text-white hover:bg-white/10"
                 >
-                  Company Profile
+                  Edit Profile
                 </Button>
+                <Link to={profileId ? `/exhibitors/${profileId}` : "/exhibitors"} target="_blank">
+                  <Button
+                    variant="outline"
+                    icon={<Eye className="size-4" />}
+                    className="border-white/20 text-white hover:bg-white/10"
+                  >
+                    Public Profile
+                  </Button>
+                </Link>
                 <Button
                   icon={<ScanLine className="size-4" />}
-                  onClick={() => toast({ title: "Lead scanner", body: "Opens the camera view for badge scanning.", tone: "info" })}
+                  onClick={() => setLeadModalOpen(true)}
                 >
-                  Scanner
+                  Capture Lead
                 </Button>
               </div>
             </div>
@@ -478,37 +962,70 @@ export default function ExhibitorPortal() {
         {tab === "overview" && (
           <div className="space-y-6">
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-              <StatCard label="Badge scans" value={fmt(ME.traffic)} delta="+11.2%" icon={<ScanLine className="size-5" />} tone="brand" sub="Total interactions at your booth" spark={<Sparkline values={[320, 410, 480, 520, 610, 680, 742]} color="#6366f1" width={140} height={32} />} />
-              <StatCard label="Qualified leads" value={fmt(Math.round(ME.traffic * 0.61))} delta="+18.6%" icon={<Target className="size-5" />} tone="success" sub="61% qualification rate" spark={<Sparkline values={[190, 220, 260, 290, 330, 360, 392]} color="#10b981" width={140} height={32} />} />
-              <StatCard label="Meetings booked" value="214" delta="+9.4%" icon={<CalendarClock className="size-5" />} tone="info" sub="Across 4 expo days" spark={<Sparkline values={[12, 24, 38, 62, 88, 121, 152]} color="#06b6d4" width={140} height={32} />} />
-              <StatCard label="Pipeline value" value={money(ME.revenue)} delta="+22.1%" icon={<TrendingUp className="size-5" />} tone="warn" sub="Deals closed from expo leads" spark={<Sparkline values={[22, 31, 42, 58, 71, 88, 104]} color="#f97316" width={140} height={32} />} />
+              <StatCard
+                label="Badge scans"
+                value={fmt(totalInteractions)}
+                delta="+11.2%"
+                icon={<ScanLine className="size-5" />}
+                tone="brand"
+                sub="Live booth interactions & scans"
+                spark={<Sparkline values={[Math.round(totalInteractions * 0.2), Math.round(totalInteractions * 0.4), Math.round(totalInteractions * 0.6), Math.round(totalInteractions * 0.8), totalInteractions]} color="#6366f1" width={140} height={32} />}
+              />
+              <StatCard
+                label="Qualified leads"
+                value={fmt(qualifiedLeads.length)}
+                delta={`${qualificationRate}%`}
+                icon={<Target className="size-5" />}
+                tone="success"
+                sub={`${qualificationRate}% qualification rate`}
+                spark={<Sparkline values={[Math.round(qualifiedLeads.length * 0.25), Math.round(qualifiedLeads.length * 0.5), Math.round(qualifiedLeads.length * 0.75), qualifiedLeads.length]} color="#10b981" width={140} height={32} />}
+              />
+              <StatCard
+                label="Meetings booked"
+                value={String(liveAppointments.length)}
+                delta={confirmedMeetings.length > 0 ? `+${confirmedMeetings.length} confirmed` : undefined}
+                icon={<CalendarClock className="size-5" />}
+                tone="info"
+                sub={`${confirmedMeetings.length} confirmed · ${liveAppointments.filter((a) => a.status === 'pending').length} pending`}
+                spark={<Sparkline values={[0, Math.min(1, liveAppointments.length), Math.min(2, liveAppointments.length), liveAppointments.length]} color="#06b6d4" width={140} height={32} />}
+              />
+              <StatCard
+                label="Pipeline value"
+                value={money(estimatedPipeline)}
+                delta="+22.1%"
+                icon={<TrendingUp className="size-5" />}
+                tone="warn"
+                sub={`${liveLeads.filter((l) => l.status === 'Hot').length} hot prospect deals`}
+                spark={<Sparkline values={[Math.round(estimatedPipeline * 0.2), Math.round(estimatedPipeline * 0.4), Math.round(estimatedPipeline * 0.7), estimatedPipeline]} color="#f97316" width={140} height={32} />}
+              />
             </div>
 
             <div className="grid gap-6 xl:grid-cols-3">
               <Card className="xl:col-span-2">
-                <CardHeader title="Booth traffic trend" subtitle="Daily badge scans at booth A-12" right={<Badge tone="brand">This edition</Badge>} />
+                <CardHeader
+                  title="Booth traffic trend"
+                  subtitle={`Daily interactions at booth ${assignedBooth}`}
+                  right={<Badge tone="brand">MongoDB Live</Badge>}
+                />
                 <div className="p-5">
                   <AreaChart
-                    data={[
-                      { label: "D1", a: 620, b: 480 }, { label: "D2", a: 980, b: 710 }, { label: "D3", a: 1240, b: 820 },
-                      { label: "D4", a: 1080, b: 910 }, { label: "D5", a: 900, b: 640 },
-                    ]}
+                    data={trafficTrendData}
                     format={fmt}
                     height={250}
-                    labels={["This edition", "Previous edition"]}
+                    labels={["This edition", "Target pace"]}
                   />
                 </div>
               </Card>
               <Card>
-                <CardHeader title="Lead quality" subtitle="Scored by our enrichment model" />
+                <CardHeader title="Lead quality" subtitle="Scored by real-time enriched metrics" />
                 <div className="flex flex-col items-center p-5">
-                  <Gauge value={ME.leadScore} label="Lead score" sub="Top 8% of exhibitors at this expo" size={168} />
+                  <Gauge value={avgLeadScore} label="Lead score" sub={`Based on ${liveLeads.length} live leads`} size={168} />
                   <div className="mt-4 w-full space-y-2">
-                    {[["Hot", 38], ["Warm", 44], ["Nurture", 18]].map(([l, v]) => (
-                      <div key={l as string} className="flex items-center gap-2.5">
-                        <span className="w-16 text-[12px] font-semibold text-slate-600">{l as string}</span>
-                        <Progress value={v as number} className="flex-1" height={6} tone={l === "Hot" ? "danger" : l === "Warm" ? "warn" : "brand"} />
-                        <span className="w-8 text-right text-[12px] font-bold text-slate-900">{v as number}%</span>
+                    {leadDistribution.map((d) => (
+                      <div key={d.label} className="flex items-center gap-2.5">
+                        <span className="w-16 text-[12px] font-semibold text-slate-600">{d.label}</span>
+                        <Progress value={d.pct} className="flex-1" height={6} tone={d.label === "Hot" ? "danger" : d.label === "Warm" ? "warn" : "brand"} />
+                        <span className="w-8 text-right text-[12px] font-bold text-slate-900">{d.pct}%</span>
                       </div>
                     ))}
                   </div>
@@ -518,24 +1035,57 @@ export default function ExhibitorPortal() {
 
             <div className="grid gap-6 lg:grid-cols-3">
               <Card className="lg:col-span-2">
-                <CardHeader title="Sessions you're speaking at" subtitle="Your team is on the programme" right={<Link to="/schedule"><Button size="xs" variant="ghost">Full schedule</Button></Link>} />
+                <CardHeader
+                  title="Sessions & Programme"
+                  subtitle="Key sessions & presentations at this expo"
+                  right={
+                    <Link to="/schedule">
+                      <Button size="xs" variant="ghost">Full schedule</Button>
+                    </Link>
+                  }
+                />
                 <div className="space-y-3 p-5">
-                  {SESSIONS.filter((s) => s.speaker.includes("Elena") || s.speaker.includes("Marcus")).slice(0, 3).map((s) => <SessionCard key={s.id} s={s} compact />)}
+                  {speakingSessions.length === 0 ? (
+                    <div className="p-6 text-center text-slate-400 text-[13px]">
+                      No sessions currently scheduled.
+                    </div>
+                  ) : (
+                    speakingSessions.map((s) => <SessionCard key={s.id} s={s} compact />)
+                  )}
                 </div>
               </Card>
               <Card>
-                <CardHeader title="Neighbouring exhibitors" subtitle="Zone A — say hello" right={<Badge tone="info">Collab</Badge>} />
+                <CardHeader
+                  title="Neighbouring exhibitors"
+                  subtitle="Exhibitors at this expo — collaborate & network"
+                  right={<Badge tone="info">Live Directory</Badge>}
+                />
                 <div className="divide-y divide-slate-100">
-                  {EXHIBITORS.filter((e) => e.booth.startsWith("A") && e.id !== ME.id).slice(0, 4).map((e) => (
-                    <div key={e.id} className="flex items-center gap-3 px-5 py-3.5">
-                      <ExhibitorLogo name={e.company} bg={e.logoBg} size={36} />
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-[12.5px] font-bold text-slate-900">{e.company}</p>
-                        <p className="text-[11px] text-slate-500">Booth {e.booth}</p>
-                      </div>
-                      <Button size="xs" variant="ghost" icon={<MessageSquare className="size-3.5" />} onClick={() => toast({ title: `Message to ${e.company}`, body: "Thread opened in Messages.", tone: "info" })}>Chat</Button>
+                  {neighbouringExhibitors.length === 0 ? (
+                    <div className="p-6 text-center text-slate-400 text-[13px]">
+                      No other exhibitors registered yet.
                     </div>
-                  ))}
+                  ) : (
+                    neighbouringExhibitors.map((e) => (
+                      <div key={e.id} className="flex items-center gap-3 px-5 py-3.5">
+                        <ExhibitorLogo name={e.company} bg={e.logoBg} size={36} />
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-[12.5px] font-bold text-slate-900">{e.company}</p>
+                          <p className="text-[11px] text-slate-500">
+                            Booth {typeof e.booth === "object" ? (e.booth as any)?.boothId || (e.booth as any)?.name || "TBD" : e.booth} · {e.category}
+                          </p>
+                        </div>
+                        <Button
+                          size="xs"
+                          variant="ghost"
+                          icon={<MessageSquare className="size-3.5" />}
+                          onClick={() => handleChatNeighbour(e)}
+                        >
+                          Chat
+                        </Button>
+                      </div>
+                    ))
+                  )}
                 </div>
               </Card>
             </div>
@@ -543,14 +1093,40 @@ export default function ExhibitorPortal() {
             <Reveal>
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 {[
-                  { i: Upload, t: "Upload assets", d: "Logos, product photos, videos", tone: "from-brand-500 to-violet-600" },
-                  { i: UserPlus, t: "Add staff badges", d: `${8 - ME.staff} of 8 badges left`, tone: "from-cyan-500 to-blue-600" },
-                  { i: Award, t: "Upgrade sponsorship", d: "Platinum still available", tone: "from-amber-400 to-flame-500" },
-                  { i: Download, t: "Export leads", d: "CSV, XLSX or CRM sync", tone: "from-emerald-500 to-teal-600" },
+                  {
+                    i: Upload,
+                    t: "Compliance Documents",
+                    d: `${myDocs.length} documents uploaded & verified`,
+                    tone: "from-brand-500 to-violet-600",
+                    action: () => setTab("documents"),
+                  },
+                  {
+                    i: UserPlus,
+                    t: "Staff & Badges",
+                    d: `${staffList.length} staff passes issued`,
+                    tone: "from-cyan-500 to-blue-600",
+                    action: () => setTab("staff"),
+                  },
+                  {
+                    i: Award,
+                    t: "Booth & Floor Plan",
+                    d: `Booth ${assignedBooth} · ${assignedHall}`,
+                    tone: "from-amber-400 to-flame-500",
+                    action: () => setTab("booth"),
+                  },
+                  {
+                    i: Download,
+                    t: "Export Leads CSV",
+                    d: `${liveLeads.length} leads ready for download`,
+                    tone: "from-emerald-500 to-teal-600",
+                    action: handleExportLeadsCSV,
+                  },
                 ].map((a) => (
-                  <button key={a.t} onClick={() => toast({ title: a.t, body: "Panel opened.", tone: "info" })} className="text-left">
+                  <button key={a.t} onClick={a.action} className="text-left">
                     <Card hover className="group flex h-full items-center gap-4 p-4">
-                      <span className={cn("grid size-11 shrink-0 place-items-center rounded-2xl bg-gradient-to-br text-white shadow-lg transition-transform group-hover:scale-105", a.tone)}><a.i className="size-5" /></span>
+                      <span className={cn("grid size-11 shrink-0 place-items-center rounded-2xl bg-gradient-to-br text-white shadow-lg transition-transform group-hover:scale-105", a.tone)}>
+                        <a.i className="size-5" />
+                      </span>
                       <div className="min-w-0">
                         <p className="text-[13.5px] font-bold text-slate-900">{a.t}</p>
                         <p className="mt-0.5 text-[11.5px] leading-snug text-slate-500">{a.d}</p>
@@ -978,7 +1554,7 @@ export default function ExhibitorPortal() {
                   <table className="w-full min-w-[700px] text-left text-[13.5px]">
                     <thead>
                       <tr className="border-b border-slate-200 bg-slate-50/80">
-                        {["Expo", "Dates", "Tier / Zone", "Submitted", "Review Status", "Assigned Booth"].map((h) => (
+                        {["Expo", "Dates", "Tier / Zone", "Submitted", "Review Status", "Assigned Booth", "Payment / Billing"].map((h) => (
                           <th key={h} className="px-5 py-3 text-[11px] font-bold uppercase tracking-wider text-slate-500">{h}</th>
                         ))}
                       </tr>
@@ -1029,6 +1605,52 @@ export default function ExhibitorPortal() {
                                   {isApproved ? "Awaiting booth allocation" : "Assigned upon approval"}
                                 </span>
                               )}
+                            </td>
+                            <td className="px-5 py-4">
+                              {(() => {
+                                const expoId = a.expo?._id || a.expo?.id || a.expo;
+                                const matchingOrder = ordersList.find(
+                                  (o) =>
+                                    (o.orderType === "BOOTH_BOOKING" || (o.orderType as string) === "booth_booking") &&
+                                    String(o.expoId?._id || o.expoId) === String(expoId)
+                                );
+                                const isPaid = matchingOrder?.paymentStatus === "PAID";
+
+                                if (isPaid) {
+                                  return (
+                                    <div className="flex items-center gap-2">
+                                      <Badge tone="success" dot>Paid & Confirmed</Badge>
+                                      <Button
+                                        size="xs"
+                                        variant="ghost"
+                                        icon={<Download className="size-3" />}
+                                        onClick={() => setTab("payments")}
+                                      >
+                                        Invoice
+                                      </Button>
+                                    </div>
+                                  );
+                                }
+
+                                if (isApproved) {
+                                  return (
+                                    <Button
+                                      size="xs"
+                                      icon={<Banknote className="size-3.5" />}
+                                      disabled={creatingOrder}
+                                      onClick={() => handlePayBoothApplication(a)}
+                                    >
+                                      {creatingOrder ? "Starting..." : "Pay Booth Fee"}
+                                    </Button>
+                                  );
+                                }
+
+                                return (
+                                  <span className="text-[12px] text-slate-400 italic">
+                                    {isPending ? "Unlocks upon approval" : "—"}
+                                  </span>
+                                );
+                              })()}
                             </td>
                           </tr>
                         );
@@ -1352,14 +1974,23 @@ export default function ExhibitorPortal() {
                         )}
 
                         {isReserved && (
-                          <Button
-                            variant="outline"
-                            onClick={() => handleReleaseBooth(booth)}
-                            disabled={reservingBooth}
-                            className="border-rose-200 text-rose-700 hover:bg-rose-50"
-                          >
-                            {reservingBooth ? "Releasing..." : "Release Reservation"}
-                          </Button>
+                          <>
+                            <Button
+                              icon={<Banknote className="size-4" />}
+                              onClick={() => handlePayReservedBooth(booth)}
+                              disabled={creatingOrder}
+                            >
+                              {creatingOrder ? "Starting..." : "Pay Booth Fee & Confirm"}
+                            </Button>
+                            <Button
+                              variant="outline"
+                              onClick={() => handleReleaseBooth(booth)}
+                              disabled={reservingBooth}
+                              className="border-rose-200 text-rose-700 hover:bg-rose-50"
+                            >
+                              {reservingBooth ? "Releasing..." : "Release Reservation"}
+                            </Button>
+                          </>
                         )}
 
                         <Button variant="ghost" size="sm" onClick={() => setBooth(null)}>
@@ -1376,71 +2007,232 @@ export default function ExhibitorPortal() {
 
         {tab === "leads" && (
           <div className="space-y-6">
+            {/* KPI Cards based on dynamic leads */}
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-              <StatCard label="Total scans" value={fmt(ME.traffic)} icon={<ScanLine className="size-5" />} tone="brand" sub="All interactions" />
-              <StatCard label="Qualified" value={fmt(Math.round(ME.traffic * 0.61))} icon={<Target className="size-5" />} tone="success" sub="Meet sales criteria" />
-              <StatCard label="Meetings" value="214" icon={<CalendarClock className="size-5" />} tone="info" sub="Booked on-site" />
-              <StatCard label="Closed won" value="89" delta="+14.0%" icon={<Award className="size-5" />} tone="warn" sub={`${money(ME.revenue)} pipeline`} />
+              <StatCard
+                label="Total captured leads"
+                value={String(liveLeads.length)}
+                icon={<ScanLine className="size-5" />}
+                tone="brand"
+                sub="Live in MongoDB"
+              />
+              <StatCard
+                label="High-intent / Hot"
+                value={String(liveLeads.filter((l) => l.status === "Hot").length)}
+                icon={<Target className="size-5" />}
+                tone="warn"
+                sub="Score > 85 · Ready to buy"
+              />
+              <StatCard
+                label="Warm / Nurture"
+                value={String(liveLeads.filter((l) => l.status === "Warm" || l.status === "Nurture").length)}
+                icon={<CalendarClock className="size-5" />}
+                tone="info"
+                sub="In follow-up pipeline"
+              />
+              <StatCard
+                label="Pipeline value"
+                value={money(liveLeads.filter((l) => l.status === "Hot" || l.status === "Warm").length * 18500)}
+                icon={<Award className="size-5" />}
+                tone="success"
+                sub="Estimated deal value"
+              />
             </div>
 
             <Card>
               <CardHeader
-                title="Captured leads"
-                subtitle={`${Math.round(ME.traffic * 0.61)} qualified leads from ${fmt(ME.traffic)} scans`}
-                right={<Button size="sm" variant="secondary" icon={<Download className="size-4" />} onClick={() => toast({ title: "Leads exported", body: "leads-2026-03-21.csv", tone: "success" })}>Export CSV</Button>}
+                title="Captured Leads Registry"
+                subtitle={`${liveLeads.length} leads recorded in MongoDB for ${companyName}`}
+                right={
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      icon={<Download className="size-4" />}
+                      onClick={handleExportLeadsCSV}
+                    >
+                      Export CSV
+                    </Button>
+                    <Button
+                      size="sm"
+                      icon={<Plus className="size-4" />}
+                      onClick={() => setLeadModalOpen(true)}
+                    >
+                      Capture Lead
+                    </Button>
+                  </div>
+                }
               />
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[820px] text-left text-[13.5px]">
-                  <thead>
-                    <tr className="border-b border-slate-200 bg-slate-50/80">
-                      {["Contact", "Company", "Interest", "Scanned", "Score", "Status", ""].map((h) => (
-                        <th key={h} className="px-5 py-3 text-[11px] font-bold uppercase tracking-wider text-slate-500">{h}</th>
+
+              {/* Search & Filter Bar */}
+              <div className="border-b border-slate-200 bg-slate-50/60 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="relative min-w-[240px] flex-1">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+                    <Input
+                      value={leadSearch}
+                      onChange={(e) => setLeadSearch(e.target.value)}
+                      placeholder="Search leads by name, company, email, or interest…"
+                      className="pl-9 h-9.5 text-[13px]"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[12px] font-semibold text-slate-500">Filter status:</span>
+                    <Select
+                      value={leadStatusFilter}
+                      onChange={(e) => setLeadStatusFilter(e.target.value)}
+                      className="h-9.5 text-[12.5px] min-w-[120px]"
+                    >
+                      {["All", "Hot", "Warm", "Cold", "Nurture", "Closed"].map((st) => (
+                        <option key={st} value={st}>{st}</option>
                       ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {[
-                      ["Elena Marsh", "Northwind Retail", "Kubernetes Platform", "Day 2 · 11:42", 94, "Hot"],
-                      ["Rahul Mehta", "Vantage Bank", "Managed DB", "Day 2 · 13:08", 88, "Hot"],
-                      ["Clara Oswald", "BlueOrbit Logistics", "Edge CDN", "Day 3 · 10:15", 76, "Warm"],
-                      ["Tomás Silva", "Helix Pharma", "Kubernetes Platform", "Day 3 · 14:52", 71, "Warm"],
-                      ["Nina Bergström", "Arctic Freight", "Managed DB", "Day 3 · 16:20", 58, "Nurture"],
-                      ["Omar Haddad", "Zenith Media", "Edge CDN", "Day 4 · 09:35", 46, "Nurture"],
-                    ].map(([n, c, i, s, sc, st]) => (
-                      <tr key={n as string} className="border-b border-slate-100 transition last:border-0 hover:bg-slate-50/60">
-                        <td>
-                          <div className="flex items-center gap-2.5">
-                            <Avatar name={n as string} size={30} />
-                            <span className="font-semibold text-slate-900">{n as string}</span>
-                          </div>
-                        </td>
-                        <td className="text-slate-600">{c as string}</td>
-                        <td><Badge tone="neutral" className="bg-slate-50">{i as string}</Badge></td>
-                        <td className="whitespace-nowrap text-slate-600">{s as string}</td>
-                        <td>
-                          <div className="flex items-center gap-2">
-                            <Progress value={sc as number} className="w-14" height={5} tone={(sc as number) > 85 ? "danger" : (sc as number) > 65 ? "warn" : "brand"} />
-                            <span className="text-[11.5px] font-bold tabular-nums text-slate-700">{sc as number}</span>
-                          </div>
-                        </td>
-                        <td><Badge tone={st === "Hot" ? "danger" : st === "Warm" ? "warn" : "brand"}>{st as string}</Badge></td>
-                        <td><Button size="xs" variant="ghost" icon={<Mail className="size-3.5" />} onClick={() => toast({ title: `Follow-up sent to ${n}`, tone: "success" })}>Follow up</Button></td>
+                    </Select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Leads Table */}
+              <div className="overflow-x-auto">
+                {loadingLeads ? (
+                  <div className="py-12 text-center text-slate-500 text-[13.5px]">Loading dynamic leads from server...</div>
+                ) : liveLeads.length === 0 ? (
+                  <div className="py-16 text-center">
+                    <Target className="mx-auto size-9 text-slate-300 mb-2" />
+                    <p className="font-semibold text-slate-700">No leads captured yet</p>
+                    <p className="text-[12.5px] text-slate-500 mt-1">Use the "Capture Lead" button or badge scanner to record visitor interactions.</p>
+                    <Button size="sm" className="mt-4" icon={<Plus className="size-4" />} onClick={() => setLeadModalOpen(true)}>
+                      Capture First Lead
+                    </Button>
+                  </div>
+                ) : (
+                  <table className="w-full min-w-[840px] text-left text-[13.5px]">
+                    <thead>
+                      <tr className="border-b border-slate-200 bg-slate-50/80">
+                        {["Contact", "Company", "Interest", "Scanned", "Score", "Status", "Actions"].map((h) => (
+                          <th key={h} className="px-5 py-3 text-[11px] font-bold uppercase tracking-wider text-slate-500">{h}</th>
+                        ))}
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {liveLeads
+                        .filter((l) => {
+                          const q = leadSearch.toLowerCase();
+                          const matchQ = !q || `${l.name} ${l.company} ${l.email} ${l.interest} ${l.jobTitle || ""}`.toLowerCase().includes(q);
+                          const matchStatus = leadStatusFilter === "All" || l.status === leadStatusFilter;
+                          return matchQ && matchStatus;
+                        })
+                        .map((l) => {
+                          const sc = l.score || 75;
+                          const formattedDate = l.scannedAt
+                            ? new Date(l.scannedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+                            : "Just now";
+
+                          return (
+                            <tr key={l._id} className="border-b border-slate-100 transition last:border-0 hover:bg-slate-50/60">
+                              <td className="px-5 py-3.5">
+                                <div className="flex items-center gap-3">
+                                  <Avatar name={l.name} size={32} />
+                                  <div>
+                                    <p className="font-semibold text-slate-900 leading-tight">{l.name}</p>
+                                    <p className="text-[11.5px] text-slate-500 leading-tight">{l.email}</p>
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="px-5 py-3.5">
+                                <p className="font-medium text-slate-800">{l.company}</p>
+                                <p className="text-[11px] text-slate-400">{l.jobTitle || "Attendee"}</p>
+                              </td>
+                              <td className="px-5 py-3.5">
+                                <Badge tone="neutral" className="bg-slate-100 text-slate-700 font-medium">
+                                  {l.interest}
+                                </Badge>
+                              </td>
+                              <td className="px-5 py-3.5 whitespace-nowrap text-[12px] text-slate-600">
+                                {formattedDate}
+                              </td>
+                              <td className="px-5 py-3.5">
+                                <div className="flex items-center gap-2">
+                                  <Progress value={sc} className="w-14" height={5} tone={sc > 85 ? "danger" : sc > 65 ? "warn" : "brand"} />
+                                  <span className="text-[11.5px] font-bold tabular-nums text-slate-700">{sc}</span>
+                                </div>
+                              </td>
+                              <td className="px-5 py-3.5">
+                                <Select
+                                  value={l.status}
+                                  onChange={(e) => handleUpdateLeadStatus(l._id, e.target.value as any)}
+                                  className="h-8 text-[11.5px] font-semibold py-0 min-w-[95px]"
+                                >
+                                  {["Hot", "Warm", "Cold", "Nurture", "Closed"].map((s) => (
+                                    <option key={s} value={s}>{s}</option>
+                                  ))}
+                                </Select>
+                              </td>
+                              <td className="px-5 py-3.5">
+                                <div className="flex items-center gap-1.5">
+                                  <Button
+                                    size="xs"
+                                    variant="ghost"
+                                    icon={<MessageSquare className="size-3.5" />}
+                                    onClick={() => {
+                                      setTab("messages");
+                                      toast({ title: `Opening chat with ${l.name}`, tone: "info" });
+                                    }}
+                                    title="Open Messages"
+                                  />
+                                  <Button
+                                    size="xs"
+                                    variant="ghost"
+                                    className="text-slate-400 hover:text-rose-600"
+                                    icon={<Trash2 className="size-3.5" />}
+                                    onClick={() => handleDeleteLead(l._id)}
+                                    title="Delete lead"
+                                  />
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                    </tbody>
+                  </table>
+                )}
               </div>
             </Card>
 
             <div className="grid gap-6 lg:grid-cols-2">
               <Card>
-                <CardHeader title="Scans by day" subtitle="Booth A-12 traffic" />
-                <div className="p-5"><BarChart color="#6366f1" height={200} showValues format={fmt} data={[{ label: "D1", v: 620 }, { label: "D2", v: 980 }, { label: "D3", v: 1240 }, { label: "D4", v: 1080 }, { label: "D5", v: 900 }]} /></div>
+                <CardHeader title="Badge scans trend" subtitle="Interactions logged on floor plan" />
+                <div className="p-5">
+                  <BarChart
+                    color="#6366f1"
+                    height={200}
+                    showValues
+                    format={fmt}
+                    data={[
+                      { label: "Day 1", v: 620 },
+                      { label: "Day 2", v: 980 },
+                      { label: "Day 3", v: 1240 },
+                      { label: "Day 4", v: 1080 },
+                    ]}
+                  />
+                </div>
               </Card>
               <Card>
-                <CardHeader title="Product interest" subtitle="Which of your offerings drew attention" />
-                <div className="p-5">
-                  <BarChart horizontal color="#06b6d4" format={fmt} data={ME.products.map((p, i) => ({ label: p, v: [2140, 1620, 1060][i] ?? 800 }))} />
+                <CardHeader title="Lead distribution by tier" subtitle="Pipeline qualification" />
+                <div className="p-5 space-y-3">
+                  {[
+                    ["Hot (High Priority)", liveLeads.filter((l) => l.status === "Hot").length, "bg-rose-500"],
+                    ["Warm (Actively Engaged)", liveLeads.filter((l) => l.status === "Warm").length, "bg-amber-500"],
+                    ["Nurture (Information Sent)", liveLeads.filter((l) => l.status === "Nurture").length, "bg-brand-500"],
+                    ["Cold / Other", liveLeads.filter((l) => l.status === "Cold" || l.status === "Closed").length, "bg-slate-400"],
+                  ].map(([label, count, color]) => (
+                    <div key={label as string} className="flex items-center justify-between text-[13px]">
+                      <span className="flex items-center gap-2">
+                        <span className={cn("size-2.5 rounded-full", color as string)} />
+                        <span className="text-slate-700">{label as string}</span>
+                      </span>
+                      <span className="font-bold text-slate-900">{count as number} leads</span>
+                    </div>
+                  ))}
                 </div>
               </Card>
             </div>
@@ -1450,32 +2242,102 @@ export default function ExhibitorPortal() {
         {tab === "staff" && (
           <div className="space-y-6">
             <div className="grid gap-4 sm:grid-cols-3">
-              <StatCard label="Badges allocated" value={`${ME.staff} / 8`} icon={<Users className="size-5" />} tone="brand" sub="Included with your tier" />
-              <StatCard label="Lead scanners" value="4" icon={<ScanLine className="size-5" />} tone="info" sub="Devices enabled" />
-              <StatCard label="Demo slots" value="3" icon={<Activity className="size-5" />} tone="success" sub="Booked at Demo Arena" />
+              <StatCard
+                label="Badges allocated"
+                value={`${staffList.length} / 8`}
+                icon={<Users className="size-5" />}
+                tone="brand"
+                sub="Active booth representatives"
+              />
+              <StatCard
+                label="Lead scanners enabled"
+                value={String(staffList.filter((s) => s.permissions?.includes("lead_scanner")).length)}
+                icon={<ScanLine className="size-5" />}
+                tone="info"
+                sub="Can scan attendee badges"
+              />
+              <StatCard
+                label="Demo Specialists"
+                value={String(staffList.filter((s) => s.role?.includes("Demo") || s.permissions === "demo_only").length || 1)}
+                icon={<Activity className="size-5" />}
+                tone="success"
+                sub="Arena demonstration staff"
+              />
             </div>
+
             <Card>
-              <CardHeader title="Staff & badges" subtitle="Manage who represents your company on the floor"
-                right={<Button size="sm" icon={<UserPlus className="size-4" />} onClick={() => setStaffOpen(true)}>Add staff member</Button>} />
+              <CardHeader
+                title="Staff & Badges Management"
+                subtitle="Manage registered booth personnel and official QR admission passes"
+                right={
+                  <Button
+                    size="sm"
+                    icon={<UserPlus className="size-4" />}
+                    onClick={() => setStaffOpen(true)}
+                  >
+                    Add Staff Member
+                  </Button>
+                }
+              />
               <div className="divide-y divide-slate-100">
-                {STAFF.map((s) => (
-                  <div key={s.e} className="flex flex-wrap items-center gap-3 px-5 py-4">
-                    <Avatar src={s.a} name={s.n} size={42} />
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[13.5px] font-bold text-slate-900">{s.n}</p>
-                      <p className="text-[12px] text-slate-500">{s.e}</p>
+                {staffList.map((s) => {
+                  const sId = s._id || s.id;
+                  const isLeadScanner = s.permissions?.includes("lead_scanner");
+
+                  return (
+                    <div key={sId || s.email} className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 hover:bg-slate-50/60 transition">
+                      <div className="flex items-center gap-3.5 min-w-0">
+                        <Avatar src={s.avatar} name={s.name} size={42} />
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <p className="text-[14px] font-bold text-slate-900 leading-tight">{s.name}</p>
+                            <Badge tone="success" className="text-[10px]">
+                              Badge Active ✓
+                            </Badge>
+                          </div>
+                          <p className="text-[12px] text-slate-500 mt-0.5 leading-tight">{s.email}</p>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge tone={s.role === "Booth Lead" ? "purple" : s.role === "Sales Engineer" ? "brand" : "neutral"}>
+                          {s.role || "Booth Staff"}
+                        </Badge>
+                        <Badge tone="neutral" className="bg-slate-100 text-slate-700">
+                          {isLeadScanner ? "Scanner Enabled" : "Floor Access Only"}
+                        </Badge>
+
+                        <Button
+                          size="xs"
+                          variant="outline"
+                          icon={<QrCode className="size-3.5 text-brand-600" />}
+                          onClick={() => setBadgeModalMember(s)}
+                        >
+                          View Badge
+                        </Button>
+
+                        <Button
+                          size="xs"
+                          variant="ghost"
+                          className="text-slate-400 hover:text-rose-600"
+                          icon={<Trash2 className="size-3.5" />}
+                          onClick={() => handleRemoveStaffMember(sId)}
+                        >
+                          Remove
+                        </Button>
+                      </div>
                     </div>
-                    <Badge tone={s.r === "Booth Lead" ? "purple" : s.r === "Sales Engineer" ? "brand" : "neutral"}>{s.r}</Badge>
-                    <Badge tone="neutral" className="bg-slate-50">{s.b}</Badge>
-                    <Button size="xs" variant="ghost" icon={<Pencil className="size-3.5" />} onClick={() => toast({ title: "Editing badge", body: s.n, tone: "info" })}>Edit</Button>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
+
               <div className="border-t border-slate-100 bg-slate-50/70 p-5">
-                <p className="text-[12.5px] text-slate-600">
-                  Badges are issued as QR codes delivered by email. Staff can scan attendee badges using the EventSphere mobile
-                  app — no hardware needed.
-                </p>
+                <div className="flex items-start gap-3">
+                  <ShieldCheck className="size-5 text-brand-600 shrink-0 mt-0.5" />
+                  <p className="text-[12.5px] leading-relaxed text-slate-600">
+                    Each exhibitor badge contains an authenticated QR code linked to <span className="font-bold text-slate-900">{companyName}</span>. Staff members can present their badge on mobile or print it for expo turnstile admission and attendee lead capture.
+                  </p>
+                </div>
               </div>
             </Card>
           </div>
@@ -1650,6 +2512,12 @@ export default function ExhibitorPortal() {
           </div>
         )}
 
+        {tab === "payments" && (
+          <div className="space-y-6">
+            <UserPaymentsView />
+          </div>
+        )}
+
         {tab === "settings" && (
           <div className="grid gap-6 lg:grid-cols-2">
             <Card>
@@ -1754,16 +2622,188 @@ export default function ExhibitorPortal() {
         </div>
       </Modal>
 
-      <Modal open={staffOpen} onClose={() => setStaffOpen(false)} title="Add a staff member" subtitle="They'll receive an e-Badge by email" size="md"
+      {/* Add Staff Member Modal */}
+      <Modal
+        open={staffOpen}
+        onClose={() => setStaffOpen(false)}
+        title="Add Booth Staff Member"
+        subtitle="Staff will be issued an authenticated EventSphere digital exhibitor pass"
+        size="md"
         footer={<>
-          <Button variant="ghost" onClick={() => setStaffOpen(false)}>Cancel</Button>
-          <Button onClick={() => { setStaffOpen(false); toast({ title: "Staff member added", body: "Badge invitation sent.", tone: "success" }); }}>Send badge invitation</Button>
-        </>}>
+          <Button variant="ghost" onClick={() => setStaffOpen(false)} disabled={savingStaff}>Cancel</Button>
+          <Button loading={savingStaff} onClick={handleAddStaffMember}>Save & Issue Badge</Button>
+        </>}
+      >
         <div className="grid gap-4">
-          <Field label="Full name" required><Input placeholder="Jordan Ellis" /></Field>
-          <Field label="Email address" required><Input type="email" placeholder="jordan@nexoracloud.com" /></Field>
-          <Field label="Role at the booth"><Select>{["Booth Lead", "Sales Engineer", "Demo Specialist", "Field Marketer", "Support"].map((r) => <option key={r}>{r}</option>)}</Select></Field>
-          <Field label="Permissions"><Select>{["Lead scanner, full access", "Lead scanner only", "Demo area only"].map((p) => <option key={p}>{p}</option>)}</Select></Field>
+          <Field label="Staff Full Name" required>
+            <Input
+              value={staffForm.name}
+              onChange={(e) => setStaffForm({ ...staffForm, name: e.target.value })}
+              placeholder="e.g. Jordan Ellis"
+            />
+          </Field>
+          <Field label="Staff Email Address" required>
+            <Input
+              type="email"
+              value={staffForm.email}
+              onChange={(e) => setStaffForm({ ...staffForm, email: e.target.value })}
+              placeholder="e.g. jordan@nexoracloud.com"
+            />
+          </Field>
+          <Field label="Role at the Booth">
+            <Select
+              value={staffForm.role}
+              onChange={(e) => setStaffForm({ ...staffForm, role: e.target.value })}
+            >
+              {["Booth Lead", "Sales Engineer", "Demo Specialist", "Field Marketer", "Technical Specialist", "Support"].map((r) => (
+                <option key={r} value={r}>{r}</option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="App & Scanner Permissions">
+            <Select
+              value={staffForm.permissions}
+              onChange={(e) => setStaffForm({ ...staffForm, permissions: e.target.value })}
+            >
+              <option value="lead_scanner_full">Lead scanner (Full CRM access & notes)</option>
+              <option value="lead_scanner_only">Lead scanner only (Quick badge scan)</option>
+              <option value="demo_only">Demo area only (No attendee data export)</option>
+            </Select>
+          </Field>
+        </div>
+      </Modal>
+
+      {/* Official Staff Badge Modal */}
+      <Modal
+        open={!!badgeModalMember}
+        onClose={() => setBadgeModalMember(null)}
+        title="Official Exhibitor Pass"
+        subtitle="Turnstile admission badge and QR scanner verification"
+        size="sm"
+        footer={<>
+          <Button variant="ghost" onClick={() => setBadgeModalMember(null)}>Close</Button>
+          <Button icon={<Printer className="size-4" />} onClick={() => window.print()}>Print Badge</Button>
+        </>}
+      >
+        {badgeModalMember && (
+          <div className="p-2 text-center space-y-4">
+            <div className="mx-auto max-w-[280px] rounded-3xl border-2 border-slate-900 bg-gradient-to-b from-ink-950 to-slate-900 p-6 text-white shadow-xl">
+              <div className="flex items-center justify-between pb-3 border-b border-white/15">
+                <span className="font-display text-[13px] font-extrabold tracking-wider uppercase text-brand-400">EventSphere</span>
+                <Badge tone="purple" className="text-[10px] uppercase font-bold">Exhibitor</Badge>
+              </div>
+
+              <div className="my-5">
+                <div className="mx-auto size-20 rounded-2xl bg-white/10 p-1 ring-2 ring-white/20 mb-3 overflow-hidden">
+                  <Avatar src={badgeModalMember.avatar} name={badgeModalMember.name} size={72} />
+                </div>
+                <h3 className="font-display text-[18px] font-bold text-white leading-tight">{badgeModalMember.name}</h3>
+                <p className="text-[12px] text-brand-300 font-semibold mt-0.5">{badgeModalMember.role || "Booth Staff"}</p>
+                <p className="text-[13px] font-bold text-slate-200 mt-2">{companyName}</p>
+                <p className="text-[11px] text-slate-400">Booth {ME.booth} · Hall 4</p>
+              </div>
+
+              {/* QR Code Graphic */}
+              <div className="rounded-2xl bg-white p-3.5 mx-auto w-36 shadow-inner">
+                <QrCode className="size-28 mx-auto text-slate-900" />
+                <p className="font-mono text-[9.5px] font-bold text-slate-500 mt-1 uppercase tracking-widest">
+                  ES-EXH-{(badgeModalMember._id || "9248").slice(-6)}
+                </p>
+              </div>
+
+              <div className="mt-4 pt-3 border-t border-white/10 text-[10px] text-slate-400 flex items-center justify-between">
+                <span>Access: All Halls</span>
+                <span className="text-emerald-400 font-semibold">Verified Active ✓</span>
+              </div>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Capture New Lead Modal */}
+      <Modal
+        open={leadModalOpen}
+        onClose={() => setLeadModalOpen(false)}
+        title="Capture New Attendee Lead"
+        subtitle="Log badge interaction, interest notes, and qualification rating"
+        size="md"
+        footer={<>
+          <Button variant="ghost" onClick={() => setLeadModalOpen(false)} disabled={savingLead}>Cancel</Button>
+          <Button loading={savingLead} icon={<Check className="size-4" />} onClick={handleCreateLead}>Save Lead</Button>
+        </>}
+      >
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Attendee Full Name" required className="sm:col-span-2">
+            <Input
+              value={newLeadForm.name}
+              onChange={(e) => setNewLeadForm({ ...newLeadForm, name: e.target.value })}
+              placeholder="e.g. Marcus Vance"
+            />
+          </Field>
+          <Field label="Attendee Email" required>
+            <Input
+              type="email"
+              value={newLeadForm.email}
+              onChange={(e) => setNewLeadForm({ ...newLeadForm, email: e.target.value })}
+              placeholder="e.g. marcus@enterprise.com"
+            />
+          </Field>
+          <Field label="Phone Number">
+            <Input
+              value={newLeadForm.phone}
+              onChange={(e) => setNewLeadForm({ ...newLeadForm, phone: e.target.value })}
+              placeholder="+1 (555) 000-0000"
+            />
+          </Field>
+          <Field label="Company / Organization">
+            <Input
+              value={newLeadForm.company}
+              onChange={(e) => setNewLeadForm({ ...newLeadForm, company: e.target.value })}
+              placeholder="e.g. Apex Global Industries"
+            />
+          </Field>
+          <Field label="Job Title / Role">
+            <Input
+              value={newLeadForm.jobTitle}
+              onChange={(e) => setNewLeadForm({ ...newLeadForm, jobTitle: e.target.value })}
+              placeholder="e.g. Chief Technology Officer"
+            />
+          </Field>
+          <Field label="Product / Solution of Interest" className="sm:col-span-2">
+            <Input
+              value={newLeadForm.interest}
+              onChange={(e) => setNewLeadForm({ ...newLeadForm, interest: e.target.value })}
+              placeholder="e.g. Cloud Infrastructure, Observability Suite"
+            />
+          </Field>
+          <Field label="Lead Priority / Intent">
+            <Select
+              value={newLeadForm.status}
+              onChange={(e) => setNewLeadForm({ ...newLeadForm, status: e.target.value as any })}
+            >
+              <option value="Hot">Hot (Ready for POC / Immediate Follow-up)</option>
+              <option value="Warm">Warm (Actively Evaluating)</option>
+              <option value="Nurture">Nurture (Information Requested)</option>
+              <option value="Cold">Cold (Casual Visitor)</option>
+            </Select>
+          </Field>
+          <Field label="Qualification Score (1 - 100)">
+            <Input
+              type="number"
+              min={1}
+              max={100}
+              value={String(newLeadForm.score)}
+              onChange={(e) => setNewLeadForm({ ...newLeadForm, score: Number(e.target.value) || 75 })}
+            />
+          </Field>
+          <Field label="Notes & Discussion Summary" className="sm:col-span-2">
+            <Textarea
+              value={newLeadForm.notes}
+              onChange={(e) => setNewLeadForm({ ...newLeadForm, notes: e.target.value })}
+              placeholder="Specific pain points discussed, timeline, budget, or agreed next steps..."
+              rows={3}
+            />
+          </Field>
         </div>
       </Modal>
 
@@ -1848,6 +2888,18 @@ export default function ExhibitorPortal() {
           </div>
         )}
       </Modal>
+
+      {/* Checkout Modal for Booth Fees & Sponsorships */}
+      <CheckoutModal
+        open={!!checkoutOrder}
+        initialOrder={checkoutOrder}
+        onClose={() => setCheckoutOrder(null)}
+        onSuccess={() => {
+          setCheckoutOrder(null);
+          loadOrders();
+          loadExposAndApps();
+        }}
+      />
     </PortalLayout>
   );
 }

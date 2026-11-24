@@ -47,17 +47,59 @@ export const createOrder = asyncHandler(async (req, res) => {
       });
     }
 
+    // Resolve booth by either MongoDB _id or string boothId
+    const isMongoId = /^[0-9a-fA-F]{24}$/.test(String(boothId));
+    const boothQuery = isMongoId
+      ? { _id: boothId, expo: expoId }
+      : { boothId: String(boothId).trim().toUpperCase(), expo: expoId };
+
+    const targetBooth = await Booth.findOne(boothQuery);
+    if (!targetBooth) {
+      throw ApiError.notFound("Booth not found at this expo");
+    }
+
+    // Check if there is an existing pending order for this booth
+    const existingOrder = await Order.findOne({
+      userId: req.user._id,
+      expoId,
+      boothId: targetBooth._id,
+      paymentStatus: "PENDING",
+      orderStatus: "PENDING",
+    }).sort({ createdAt: -1 });
+
+    if (existingOrder) {
+      return ApiResponse.ok(res, existingOrder, "Existing pending order retrieved");
+    }
+
+    // Check ownership: does this booth belong to ANOTHER exhibitor?
+    const isOccupiedByAnother =
+      targetBooth.exhibitor &&
+      profile &&
+      String(targetBooth.exhibitor) !== String(profile._id);
+
+    if (isOccupiedByAnother) {
+      throw ApiError.conflict("This booth is already booked or currently reserved by another exhibitor.");
+    }
+
+    if (targetBooth.status === "booked" && (!profile || String(targetBooth.exhibitor) !== String(profile._id))) {
+      throw ApiError.conflict("This booth is already booked or currently reserved by another exhibitor.");
+    }
+
     // Atomic claim of booth for 60 minutes
     const heldUntil = new Date(Date.now() + 60 * 60 * 1000);
     booth = await Booth.findOneAndUpdate(
       {
-        _id: boothId,
+        _id: targetBooth._id,
         expo: expoId,
-        status: { $in: ["available", "reserved"] },
+        $or: [
+          { status: { $in: ["available", "reserved"] } },
+          ...(profile ? [{ exhibitor: profile._id }] : []),
+        ],
       },
       {
         $set: {
-          status: "reserved",
+          status: targetBooth.status === "booked" ? "booked" : "reserved",
+          ...(profile ? { exhibitor: profile._id } : {}),
           reservedAt: new Date(),
           heldUntil,
         },
@@ -66,7 +108,7 @@ export const createOrder = asyncHandler(async (req, res) => {
     );
 
     if (!booth) {
-      throw ApiError.conflict("This booth is already booked or currently reserved by another exhibitor.");
+      booth = targetBooth;
     }
 
     // Pull price strictly from MongoDB pricing configuration

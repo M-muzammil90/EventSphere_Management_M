@@ -24,6 +24,11 @@ import AdminFloorPlan from "@/pages/admin/AdminFloorPlan";
 import AdminAnalytics from "@/pages/admin/AdminAnalytics";
 import AdminMessages from "@/pages/admin/AdminMessages";
 import AdminSettings from "@/pages/admin/AdminSettings";
+import AdminPayments from "@/pages/admin/AdminPayments";
+import SpeakersPage from "@/pages/SpeakersPage";
+import FaqPage from "@/pages/FaqPage";
+import LegalPage from "@/pages/LegalPage";
+import CheckoutPage from "@/pages/CheckoutPage";
 import ExhibitorPortal from "@/pages/ExhibitorPortal";
 import AttendeePortal from "@/pages/AttendeePortal";
 
@@ -74,9 +79,15 @@ export default function App() {
           <Route path="/expos/:slug" element={<ExpoDetail />} />
           <Route path="/floor-plan" element={<FloorPlanPage />} />
           <Route path="/schedule" element={<SchedulePage />} />
+          <Route path="/speakers" element={<SpeakersPage />} />
+          <Route path="/faq" element={<FaqPage />} />
+          <Route path="/faqs" element={<Navigate to="/faq" replace />} />
+          <Route path="/privacy" element={<LegalPage initialTab="privacy" />} />
+          <Route path="/terms" element={<LegalPage initialTab="terms" />} />
           <Route path="/explore-expos" element={<Navigate to="/expos" replace />} />
           <Route path="/events/:slug" element={<ExpoDetail />} />
           <Route path="/support" element={<SupportPage />} />
+          <Route path="/checkout/:orderId" element={<CheckoutPage />} />
           <Route path="/login" element={<Auth mode="login" />} />
           <Route path="/register" element={<Auth mode="register" />} />
           <Route path="/forgot-password" element={<Auth mode="forgot" />} />
@@ -97,6 +108,7 @@ export default function App() {
             <Route path="feedback" element={<AdminFeedback />} />
             <Route path="schedule" element={<AdminSchedule />} />
             <Route path="floor-plan" element={<AdminFloorPlan />} />
+            <Route path="payments" element={<AdminPayments />} />
             <Route path="analytics" element={<AdminAnalytics />} />
             <Route path="messages" element={<AdminMessages />} />
             <Route path="settings" element={<AdminSettings />} />

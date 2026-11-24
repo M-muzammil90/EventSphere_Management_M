@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { cn } from "@/utils/cn";
 import { useStore } from "@/lib/store";
@@ -18,9 +18,9 @@ import {
 } from "lucide-react";
 
 /* =====================================================================
-   PortalLayout — shared app-shell for the Exhibitor & Attendee portals.
-   Mirrors the Admin dashboard: fixed left sidebar + sticky top header,
-   content scrolls on the right. Fully responsive (off-canvas on mobile).
+   PortalLayout: shared app shell for the Exhibitor and Attendee portals.
+   White theme: light sidebar + sticky white header, content on the right.
+   Responsive (off-canvas sidebar on mobile).
    ===================================================================== */
 
 export type PortalNavItem = {
@@ -30,6 +30,15 @@ export type PortalNavItem = {
   badge?: string | number;
   group?: string;
 };
+
+const focusRing =
+  "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500";
+
+const HELP_LINKS = [
+  { icon: ExternalLink, label: "Public site", to: "/" },
+  { icon: LifeBuoy, label: "Support centre", to: "/support" },
+  { icon: MessageSquare, label: "Contact us", to: "/contact" },
+];
 
 export function PortalLayout({
   roleLabel,
@@ -56,47 +65,94 @@ export function PortalLayout({
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobile, setMobile] = useState(false);
+  const searchRef = useRef<HTMLInputElement>(null);
   const { user, logout } = useStore();
   const router = useNavigate();
 
+  // The mobile drawer is always shown expanded, whatever the desktop collapse state is.
+  const compact = collapsed && !mobile;
+
   useEffect(() => setMobile(false), [active]);
+
+  // Escape closes the drawer, Ctrl/Cmd+K focuses search.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMobile(false);
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        searchRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  // Stop the page behind the drawer from scrolling.
+  useEffect(() => {
+    document.body.style.overflow = mobile ? "hidden" : "";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [mobile]);
 
   const groups = Array.from(new Set(nav.map((n) => n.group ?? "")));
   const current = nav.find((n) => n.id === active)?.label ?? "Overview";
 
+  const signOut = (to: string) => {
+    logout();
+    router(to);
+  };
+
+  const sectionLabel = "px-3 pb-2 text-xs font-semibold text-slate-400";
+
   return (
-    <div className="min-h-screen bg-slate-100/70">
+    <div className="min-h-screen bg-slate-50">
       {/* ============================ SIDEBAR ============================ */}
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-50 flex flex-col border-r border-ink-800 bg-ink-950 transition-all duration-300 lg:translate-x-0",
+          "fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-slate-200 bg-white transition-all duration-300 lg:translate-x-0",
           collapsed ? "lg:w-[76px]" : "lg:w-64",
-          "w-64",
-          mobile ? "translate-x-0" : "-translate-x-full"
+          mobile ? "translate-x-0 shadow-2xl shadow-slate-900/10" : "-translate-x-full"
         )}
       >
-        <div className="flex h-16.5 shrink-0 items-center gap-2.5 border-b border-white/8 px-4">
-          <Link to="/" className="flex items-center gap-2.5" aria-label="EventSphere home">
-            <span className="relative grid size-9.5 place-items-center overflow-hidden rounded-[13px] bg-gradient-to-br from-brand-500 to-brand-700 shadow-[0_6px_20px_-6px_rgba(104,84,217,.85)]">
+        <div className="flex h-16.5 shrink-0 items-center gap-2.5 border-b border-slate-200 px-4">
+          <Link
+            to="/"
+            className={cn("flex items-center gap-2.5 rounded-xl", focusRing)}
+            aria-label="EventSphere home"
+          >
+            <span className="relative grid size-9.5 shrink-0 place-items-center overflow-hidden rounded-[13px] bg-gradient-to-br from-brand-500 to-brand-700 shadow-[0_6px_18px_-6px_rgba(104,84,217,.55)]">
               <span className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(255,255,255,.42),transparent_60%)]" />
-              <svg viewBox="0 0 24 24" className="relative size-5 text-white" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <svg
+                viewBox="0 0 24 24"
+                className="relative size-5 text-white"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
                 <path d="M3 20h18" />
                 <path d="M6 20V9l6-5 6 5v11" />
                 <path d="M10 20v-6h4v6" />
               </svg>
             </span>
-            {!collapsed && (
+            {!compact && (
               <span className="flex flex-col leading-none">
-                <span className="font-display text-[16px] font-extrabold tracking-[-0.03em] text-white">
-                  Event<span className="text-brand-300">Sphere</span>
+                <span className="font-display text-[17px] font-extrabold tracking-[-0.03em] text-slate-900">
+                  Event<span className="text-brand-600">Sphere</span>
                 </span>
-                <span className="mt-0.5 text-[9px] font-bold uppercase tracking-[0.18em] text-white/40">{roleShort}</span>
+                <span className="mt-1 text-xs font-medium text-slate-500">{roleShort}</span>
               </span>
             )}
           </Link>
           <button
             onClick={() => setMobile(false)}
-            className="ml-auto grid size-8 place-items-center rounded-lg text-white/50 transition hover:bg-white/10 hover:text-white lg:hidden"
+            className={cn(
+              "ml-auto grid size-9 place-items-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 lg:hidden",
+              focusRing
+            )}
             aria-label="Close menu"
           >
             <X className="size-5" />
@@ -106,40 +162,53 @@ export function PortalLayout({
         <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4" aria-label={`${roleLabel} navigation`}>
           {groups.map((g, gi) => {
             const items = nav.filter((n) => (n.group ?? "") === g);
+            const label = g || (gi === 0 ? "Menu" : "");
             return (
               <div key={g || gi} className={cn(gi > 0 && "pt-4")}>
-                {!collapsed && g && (
-                  <p className="px-2.5 pb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-white/30">{g}</p>
-                )}
-                {!collapsed && !g && gi === 0 && (
-                  <p className="px-2.5 pb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-white/30">Menu</p>
-                )}
-                <div className="space-y-1">
+                {!compact && label && <p className={sectionLabel}>{label}</p>}
+                <div className="space-y-0.5">
                   {items.map((n) => {
                     const isActive = active === n.id;
+                    const hasBadge = n.badge !== undefined && n.badge !== 0;
                     return (
                       <button
                         key={n.id}
                         onClick={() => onNavigate(n.id)}
-                        title={collapsed ? n.label : undefined}
+                        title={compact ? n.label : undefined}
+                        aria-label={compact ? n.label : undefined}
                         aria-current={isActive ? "page" : undefined}
                         className={cn(
-                          "group relative flex w-full items-center gap-3 rounded-xl px-2.5 py-2.5 text-[13px] font-semibold transition-all duration-200",
+                          "group relative flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors duration-150",
+                          focusRing,
                           isActive
-                            ? "bg-gradient-to-r from-brand-600/90 to-brand-500/60 text-white shadow-lg shadow-brand-900/40"
-                            : "text-white/55 hover:bg-white/8 hover:text-white"
+                            ? "bg-brand-50 text-brand-700"
+                            : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
                         )}
                       >
-                        {isActive && <span className="absolute -left-3 top-1/2 h-6 w-1 -translate-y-1/2 rounded-r-full bg-brand-400" />}
-                        <n.icon className={cn("size-4.5 shrink-0", collapsed && "mx-auto")} />
-                        {!collapsed && <span className="truncate">{n.label}</span>}
-                        {!collapsed && n.badge !== undefined && n.badge !== 0 && (
-                          <span className="ml-auto shrink-0 rounded-md bg-white/12 px-1.5 py-0.5 text-[10.5px] font-bold text-white/80">
+                        {isActive && (
+                          <span className="absolute -left-3 top-1/2 h-6 w-1 -translate-y-1/2 rounded-r-full bg-brand-600" />
+                        )}
+                        <n.icon
+                          className={cn(
+                            "size-[18px] shrink-0 transition-colors",
+                            compact && "mx-auto",
+                            isActive ? "text-brand-600" : "text-slate-400 group-hover:text-slate-600"
+                          )}
+                          aria-hidden="true"
+                        />
+                        {!compact && <span className="truncate">{n.label}</span>}
+                        {!compact && hasBadge && (
+                          <span
+                            className={cn(
+                              "ml-auto shrink-0 rounded-md px-1.5 py-0.5 text-xs font-bold",
+                              isActive ? "bg-brand-100 text-brand-700" : "bg-slate-100 text-slate-600"
+                            )}
+                          >
                             {n.badge}
                           </span>
                         )}
-                        {collapsed && n.badge !== undefined && n.badge !== 0 && (
-                          <span className="absolute right-2 top-2 size-1.5 rounded-full bg-rose-400" />
+                        {compact && hasBadge && (
+                          <span className="absolute right-2 top-2 size-2 rounded-full bg-rose-500 ring-2 ring-white" />
                         )}
                       </button>
                     );
@@ -150,45 +219,55 @@ export function PortalLayout({
           })}
 
           <div className="pt-4">
-            {!collapsed && <p className="px-2.5 pb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-white/30">Help</p>}
-            {[
-              { i: ExternalLink, l: "Public site", to: "/" },
-              { i: LifeBuoy, l: "Support centre", to: "/support" },
-              { i: MessageSquare, l: "Contact us", to: "/contact" },
-            ].map((x) => (
-              <Link
-                key={x.l}
-                to={x.to}
-                className="flex items-center gap-3 rounded-xl px-2.5 py-2.5 text-[13px] font-semibold text-white/45 transition hover:bg-white/8 hover:text-white"
-              >
-                <x.i className={cn("size-4.5 shrink-0", collapsed && "mx-auto")} />
-                {!collapsed && <span>{x.l}</span>}
-              </Link>
-            ))}
+            {!compact && <p className={sectionLabel}>Help</p>}
+            <div className="space-y-0.5">
+              {HELP_LINKS.map((x) => (
+                <Link
+                  key={x.label}
+                  to={x.to}
+                  title={compact ? x.label : undefined}
+                  aria-label={compact ? x.label : undefined}
+                  className={cn(
+                    "group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900",
+                    focusRing
+                  )}
+                >
+                  <x.icon
+                    className={cn(
+                      "size-[18px] shrink-0 text-slate-400 transition-colors group-hover:text-slate-600",
+                      compact && "mx-auto"
+                    )}
+                    aria-hidden="true"
+                  />
+                  {!compact && <span>{x.label}</span>}
+                </Link>
+              ))}
+            </div>
           </div>
         </nav>
 
-        {/* contextual promo card (matches admin dashboard) */}
-        {promo && !collapsed && <div className="mx-3 mb-3 shrink-0">{promo}</div>}
+        {/* contextual promo card */}
+        {promo && !compact && <div className="mx-3 mb-3 shrink-0">{promo}</div>}
 
         {/* sidebar footer */}
-        <div className="shrink-0 border-t border-white/8 p-3">
-          <div className={cn("flex items-center gap-2.5 rounded-xl p-1.5 transition hover:bg-white/8", collapsed && "justify-center")}>
-            <Avatar src={user?.avatar} name={user?.name} size={34} />
-            {!collapsed && (
+        <div className="shrink-0 border-t border-slate-200 p-3">
+          <div className={cn("flex items-center gap-2.5 rounded-xl p-1.5", compact && "justify-center")}>
+            <Avatar src={user?.avatar} name={user?.name} size={36} />
+            {!compact && (
               <div className="min-w-0 flex-1">
-                <p className="truncate text-[12.5px] font-bold text-white">{user?.name ?? "Guest user"}</p>
-                <p className="truncate text-[10.5px] text-white/45">{roleLabel}</p>
+                <p className="truncate text-[13px] font-bold text-slate-900">{user?.name ?? "Guest user"}</p>
+                <p className="truncate text-xs text-slate-500">{roleLabel}</p>
               </div>
             )}
-            {!collapsed && (
+            {!compact && (
               <button
-                onClick={() => {
-                  logout();
-                  router("/");
-                }}
+                onClick={() => signOut("/")}
                 aria-label="Sign out"
-                className="grid size-8 shrink-0 place-items-center rounded-lg text-white/40 transition hover:bg-white/10 hover:text-white"
+                title="Sign out"
+                className={cn(
+                  "grid size-9 shrink-0 place-items-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700",
+                  focusRing
+                )}
               >
                 <LogOut className="size-4" />
               </button>
@@ -196,7 +275,11 @@ export function PortalLayout({
           </div>
           <button
             onClick={() => setCollapsed((v) => !v)}
-            className="mt-2 hidden w-full items-center justify-center gap-2 rounded-xl py-2 text-[11.5px] font-semibold text-white/35 transition hover:bg-white/8 hover:text-white lg:flex"
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            className={cn(
+              "mt-2 hidden w-full items-center justify-center gap-2 rounded-xl py-2 text-xs font-semibold text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 lg:flex",
+              focusRing
+            )}
           >
             {collapsed ? <ChevronsRight className="size-4" /> : <ChevronsLeft className="size-4" />}
             {!collapsed && "Collapse"}
@@ -204,55 +287,73 @@ export function PortalLayout({
         </div>
       </aside>
 
-      {mobile && <div className="fixed inset-0 z-40 bg-ink-950/60 backdrop-blur-sm lg:hidden" onClick={() => setMobile(false)} />}
+      {mobile && (
+        <div
+          className="fixed inset-0 z-40 bg-slate-900/30 backdrop-blur-[2px] lg:hidden"
+          onClick={() => setMobile(false)}
+          aria-hidden="true"
+        />
+      )}
 
       {/* ============================= MAIN ============================= */}
       <div className={cn("transition-all duration-300", collapsed ? "lg:pl-[76px]" : "lg:pl-64")}>
         {/* header */}
-        <header className="sticky top-0 z-30 flex h-16.5 items-center gap-3 border-b border-slate-200 bg-white/92 px-4 backdrop-blur-xl sm:px-6">
+        <header className="sticky top-0 z-30 flex h-16.5 items-center gap-3 border-b border-slate-200 bg-white/90 px-4 backdrop-blur-xl sm:px-6">
           <button
             onClick={() => setMobile(true)}
-            className="grid size-9.5 place-items-center rounded-xl text-slate-500 transition hover:bg-slate-100 lg:hidden"
+            className={cn(
+              "grid size-10 place-items-center rounded-xl text-slate-600 transition hover:bg-slate-100 lg:hidden",
+              focusRing
+            )}
             aria-label="Open menu"
           >
             <Menu className="size-5" />
           </button>
 
           <div className="hidden min-w-0 sm:block">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">{roleLabel}</p>
-            <h1 className="truncate font-display text-[16px] font-bold tracking-tight text-slate-900">{current}</h1>
+            <p className="text-xs font-medium text-slate-500">{roleLabel}</p>
+            <h1 className="truncate font-display text-[17px] font-bold tracking-tight text-slate-900">{current}</h1>
           </div>
 
           <div className="relative ml-auto hidden max-w-sm flex-1 md:block">
-            <Search className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+            <Search
+              className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-slate-400"
+              aria-hidden="true"
+            />
             <input
+              ref={searchRef}
               placeholder={searchPlaceholder}
               aria-label="Search"
-              className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50/80 pl-10 pr-16 text-[13px] outline-none transition focus:border-brand-400 focus:bg-white focus:ring-4 focus:ring-brand-500/10"
+              className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-16 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-brand-400 focus:bg-white focus:ring-4 focus:ring-brand-500/10"
             />
-            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-bold text-slate-400">⌘K</span>
+            <kbd className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-xs font-semibold text-slate-400">
+              ⌘K
+            </kbd>
           </div>
 
           <div className="ml-auto flex items-center gap-2 md:ml-0">
-            <div className="hidden lg:block"><ApiStatus compact /></div>
+            <div className="hidden lg:block">
+              <ApiStatus compact />
+            </div>
             <NotificationsMenu />
             {headerRight}
-            <div className="flex items-center gap-2 rounded-xl border border-slate-200 py-1 pl-1 pr-2">
-              <Avatar src={user?.avatar} name={user?.name} size={30} />
+            <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white py-1 pl-1 pr-1.5">
+              <Avatar src={user?.avatar} name={user?.name} size={32} />
               <div className="hidden leading-tight lg:block">
-                <p className="text-[12px] font-bold text-slate-900">{user?.name?.split(" ")[0] ?? "Guest"}</p>
-                <p className="text-[10px] text-slate-400">{roleShort}</p>
+                <p className="text-[13px] font-bold text-slate-900">{user?.name?.split(" ")[0] ?? "Guest"}</p>
+                <p className="text-xs text-slate-500">{roleShort}</p>
               </div>
               <button
                 type="button"
-                onClick={() => {
-                  logout();
-                  router("/login");
-                }}
+                onClick={() => signOut("/login")}
                 title="Sign out or switch role"
-                className="ml-1 rounded-lg p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                aria-label="Sign out or switch role"
+                className={cn(
+                  "ml-1 grid size-8 place-items-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700",
+                  focusRing
+                )}
               >
-                <LogOut className="size-3.5" />
+                <LogOut className="size-4" />
               </button>
             </div>
           </div>
@@ -269,4 +370,7 @@ export function PortalLayout({
 }
 
 /* Convenience hook-free toast helper for portals */
-export const portalToast = (title: string, tone: "success" | "info" | "warn" | "danger" = "info") => ({ title, tone });
+export const portalToast = (title: string, tone: "success" | "info" | "warn" | "danger" = "info") => ({
+  title,
+  tone,
+});
