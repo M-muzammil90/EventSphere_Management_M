@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import cloudinary, { isCloudinaryConfigured } from "../config/cloudinary.js";
 import { ApiError } from "../utils/ApiResponse.js";
 
@@ -26,24 +27,16 @@ export async function uploadAsset(file, { folder = "misc", resourceType = "image
   const opts = {
     folder: sub,
     resource_type: resourceType === "raw" ? "raw" : "image",
-    // private documents use unsigned access + a signed delivery URL
-    type: isPrivate ? "authenticated" : "upload",
-    unique_filename: true,
-    overwrite: false,
   };
 
   return new Promise((resolve, reject) => {
-    const uploadFn = resourceType === "raw"
-      ? cloudinary.uploader.upload_stream
-      : cloudinary.uploader.upload_stream;
-
-    const stream = uploadFn(opts, (err, result) => {
+    const stream = cloudinary.uploader.upload_stream(opts, (err, result) => {
       if (err) return reject(ApiError.server(`Upload failed: ${err.message}`));
       resolve({
         storage: "cloudinary",
         url: result.secure_url,
         publicId: result.public_id,
-        resourceType: result.resource_type,
+        resourceType: result.resource_type || "auto",
         filename: result.public_id.split("/").pop(),
         originalName: file.originalname,
         mimeType: file.mimetype,
@@ -54,7 +47,7 @@ export async function uploadAsset(file, { folder = "misc", resourceType = "image
     });
 
     if (file.buffer) stream.end(file.buffer);
-    else if (file.path) require("fs").createReadStream(file.path).pipe(stream);
+    else if (file.path) fs.createReadStream(file.path).pipe(stream);
     else reject(ApiError.badRequest("Unsupported file source"));
   });
 }

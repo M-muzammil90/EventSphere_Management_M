@@ -336,6 +336,10 @@ export const sendMessage = asyncHandler(async (req, res) => {
   const { content, body: legacyBody, messageType = "TEXT" } = req.body;
   const text = (content || legacyBody || "").trim();
 
+  if (!text && !req.file) {
+    throw ApiError.unprocessable("Message body cannot be empty");
+  }
+
   const conv = await Conversation.findById(id).populate("participants", "name role");
   if (!conv) throw ApiError.notFound("Conversation not found");
 

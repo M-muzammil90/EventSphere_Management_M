@@ -14,7 +14,7 @@ const TEAM = [
 ];
 
 export default function AdminSettings() {
-  const { user, toast } = useStore();
+  const { user, toast, login, authMode } = useStore();
   const [tab, setTab] = useState("profile");
   const [prefs, setPrefs] = useState({
     scheduleAlerts: true,
@@ -26,6 +26,35 @@ export default function AdminSettings() {
   });
   const [privacy, setPrivacy] = useState({ profileVisible: true, dataSharing: false, analytics: true });
   const [twofa, setTwofa] = useState(true);
+
+  const [adminName, setAdminName] = useState(user?.name || "EventSphere Owner");
+  const [adminOrg, setAdminOrg] = useState(user?.company || "EventSphere Management");
+  const [adminJobTitle, setAdminJobTitle] = useState(user?.jobTitle || "Head of Events");
+  const [adminPhone, setAdminPhone] = useState(user?.phone || "+971 4 555 0134");
+  const [adminBio, setAdminBio] = useState(user?.bio || "EventSphere Management builds and operates large-scale expos and trade shows across 14 countries.");
+  const [savingAdmin, setSavingAdmin] = useState(false);
+
+  const handleSaveAdminProfile = async () => {
+    setSavingAdmin(true);
+    try {
+      const { patch } = await import("@/lib/api");
+      const res = await patch<any>("/users/me", {
+        name: adminName,
+        company: adminOrg,
+        jobTitle: adminJobTitle,
+        phone: adminPhone,
+        bio: adminBio,
+      });
+      if (res?.data) {
+        login(res.data, authMode);
+      }
+      toast({ title: "Admin profile saved to MongoDB ✓", tone: "success" });
+    } catch (err: any) {
+      toast({ title: "Failed to save profile", body: err.message, tone: "danger" });
+    } finally {
+      setSavingAdmin(false);
+    }
+  };
 
   const teamList = useMemo(() => {
     return [
@@ -78,19 +107,35 @@ export default function AdminSettings() {
               </div>
 
               <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="Full name" required><Input defaultValue={user?.name} /></Field>
-                <Field label="Email address" required><Input type="email" defaultValue={user?.email} /></Field>
-                <Field label="Organization"><Input defaultValue="EventSphere Management" /></Field>
-                <Field label="Job title"><Input defaultValue="Head of Events" /></Field>
-                <Field label="Phone"><Input placeholder="+971 4 555 0134" /></Field>
-                <Field label="Time zone"><Select defaultValue="Asia/Dubai">{["Asia/Dubai", "Europe/London", "Europe/Berlin", "America/New_York", "Asia/Singapore"].map((t) => <option key={t}>{t}</option>)}</Select></Field>
+                <Field label="Full name" required>
+                  <Input value={adminName} onChange={(e) => setAdminName(e.target.value)} />
+                </Field>
+                <Field label="Email address" required>
+                  <Input type="email" defaultValue={user?.email} disabled className="bg-slate-50 cursor-not-allowed" />
+                </Field>
+                <Field label="Organization">
+                  <Input value={adminOrg} onChange={(e) => setAdminOrg(e.target.value)} />
+                </Field>
+                <Field label="Job title">
+                  <Input value={adminJobTitle} onChange={(e) => setAdminJobTitle(e.target.value)} />
+                </Field>
+                <Field label="Phone">
+                  <Input value={adminPhone} onChange={(e) => setAdminPhone(e.target.value)} placeholder="+971 4 555 0134" />
+                </Field>
+                <Field label="Time zone">
+                  <Select defaultValue="Asia/Dubai">{["Asia/Dubai", "Europe/London", "Europe/Berlin", "America/New_York", "Asia/Singapore"].map((t) => <option key={t}>{t}</option>)}</Select>
+                </Field>
               </div>
 
-              <Field label="Bio" hint="shown on public profile"><Textarea defaultValue="EventSphere Management builds and operates large-scale expos and trade shows across 14 countries." /></Field>
+              <Field label="Bio" hint="shown on public profile">
+                <Textarea value={adminBio} onChange={(e) => setAdminBio(e.target.value)} />
+              </Field>
 
               <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
                 <Button variant="ghost">Discard</Button>
-                <Button onClick={() => toast({ title: "Profile saved", tone: "success" })}>Save changes</Button>
+                <Button onClick={handleSaveAdminProfile} disabled={savingAdmin}>
+                  {savingAdmin ? "Saving to MongoDB..." : "Save changes"}
+                </Button>
               </div>
             </div>
           </Card>

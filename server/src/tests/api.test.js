@@ -1017,3 +1017,104 @@ describe("API contract shape", () => {
     expect(last.body.success).toBe(false);
   });
 });
+
+/* ================================================================
+   18. SECURITY: CSRF PROTECTION & TOKEN REVOCATION
+   ================================================================ */
+describe("Security: CSRF & Token Revocation", () => {
+  test("issues a CSRF token cookie and payload on /auth/csrf-token", async () => {
+    const r = await request().get("/api/v1/auth/csrf-token");
+    expect(r.status).toBe(200);
+    expect(typeof r.body.data.csrfToken).toBe("string");
+    expect(r.headers["set-cookie"].some((c) => c.startsWith("es_csrf="))).toBe(true);
+  });
+
+  test("rejects cookie-authenticated mutating request when CSRF token is missing or mismatched", async () => {
+    const c = await login("admin@test.com", "AdminPass1");
+    const rMissing = await request()
+      .patch(`/api/v1/pricing/settings/${testExpo._id}`)
+      .set("Cookie", c.cookie)
+      .set("x-enforce-csrf", "true")
+      .send({ taxRate: 7 });
+    expect(rMissing.status).toBe(403);
+
+    const rBad = await request()
+      .patch(`/api/v1/pricing/settings/${testExpo._id}`)
+      .set("Cookie", c.cookie)
+      .set("x-enforce-csrf", "true")
+      .set("X-CSRF-Token", "invalid-token")
+      .send({ taxRate: 7 });
+    expect(rBad.status).toBe(403);
+  });
+
+  test("accepts mutating request with valid double-submit CSRF token", async () => {
+    const loginRes = await request().post("/api/v1/auth/login").send({ email: "admin@test.com", password: "AdminPass1" });
+    const csrfToken = loginRes.body.data.csrfToken;
+    const cookies = loginRes.headers["set-cookie"];
+    const r = await request()
+      .patch(`/api/v1/pricing/settings/${testExpo._id}`)
+      .set("Cookie", cookies)
+      .set("x-enforce-csrf", "true")
+      .set("X-CSRF-Token", csrfToken)
+      .send({ taxRate: 8 });
+    expect(r.status).toBe(200);
+    expect(r.body.data.taxRate).toBe(8);
+  });
+
+  test("revokes JWT on logout so it cannot be reused", async () => {
+    const loginRes = await request().post("/api/v1/auth/login").send({ email: "attendee@test.com", password: "Password1" });
+    const token = loginRes.body.data.token;
+    const before = await request().get("/api/v1/auth/me").set("Authorization", `Bearer ${token}`);
+    expect(before.status).toBe(200);
+
+    const out = await request().post("/api/v1/auth/logout").set("Authorization", `Bearer ${token}`);
+    expect(out.status).toBe(200);
+
+    const after = await request().get("/api/v1/auth/me").set("Authorization", `Bearer ${token}`);
+    expect(after.status).toBe(401);
+  });
+});
+
+/* ================================================================
+   19. ADMIN PRICING MANAGEMENT CRUD
+   ================================================================ */
+describe("Admin Pricing Management", () => {
+  test("admin can update booth pricing by ID and toggle status", async () => {
+    const c = await login("admin@test.com", "AdminPass1");
+    const adminDoc = await User.findOne({ email: "admin@test.com" });
+    const pricingExpo = await Expo.create({
+      title: "Pricing Test Expo 2026",
+      slug: "pricing-test-expo-2026",
+      category: "Technology",
+      theme: "AI & Cloud",
+      description: "Test expo for pricing CRUD validation.",
+      organizer: adminDoc._id,
+      venue: { name: "Main Hall", city: "Austin", country: "USA" },
+      startDate: new Date("2026-10-01"),
+      endDate: new Date("2026-10-03"),
+      capacity: 1000,
+      status: "published",
+    });
+
+    const created = await request()
+      .post("/api/v1/pricing/booths")
+      .set("Cookie", c.cookie)
+      .send({ expo: pricingExpo._id, category: "Island", sqm: 64, basePrice: 12000, discountPercent: 10, status: "active" });
+    expect(created.status).toBe(200);
+    expect(created.body.data.effectivePrice).toBe(10800);
+
+    const updated = await request()
+      .patch(`/api/v1/pricing/booths/${created.body.data._id}`)
+      .set("Cookie", c.cookie)
+      .send({ status: "draft", discountPercent: 20 });
+    expect(updated.status).toBe(200);
+    expect(updated.body.data.status).toBe("draft");
+    expect(updated.body.data.effectivePrice).toBe(9600);
+  });
+
+  test("non-admin cannot access admin pricing endpoints", async () => {
+    const c = await login("exhibitor@test.com", "Password1");
+    const r = await request().get("/api/v1/pricing/booths").set("Cookie", c.cookie);
+    expect(r.status).toBe(403);
+  });
+});

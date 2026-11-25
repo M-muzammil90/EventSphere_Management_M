@@ -21,10 +21,12 @@ router.use(protect, restrictTo("admin"));
 
 router.get("/booths", c.getBoothPrices);
 router.post("/booths", validate({ body: boothPricingSchema }), c.upsertBoothPrice);
+router.patch("/booths/:id", c.updateBoothPrice);
 router.delete("/booths/:id", c.deleteBoothPrice);
 
 router.get("/tickets", c.getTicketTypes);
 router.post("/tickets", validate({ body: ticketPricingSchema }), c.upsertTicketType);
+router.patch("/tickets/:id", c.updateTicketType);
 router.delete("/tickets/:id", c.deleteTicketType);
 
 router.get("/settings/:expoId", c.getPricingSettings);

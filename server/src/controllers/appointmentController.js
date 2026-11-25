@@ -33,8 +33,23 @@ export const createAppointment = asyncHandler(async (req, res) => {
 
   // date must fall inside the expo window
   const d = new Date(date);
-  if (d < new Date(expo.startDate) || d > new Date(expo.endDate)) {
-    throw ApiError.badRequest("The appointment date must fall within the expo dates");
+  if (isNaN(d.getTime())) {
+    throw ApiError.badRequest("Invalid appointment date provided");
+  }
+
+  const expoStart = new Date(expo.startDate);
+  expoStart.setHours(0, 0, 0, 0);
+  const expoEnd = new Date(expo.endDate);
+  expoEnd.setHours(23, 59, 59, 999);
+
+  // 1-day grace buffer for timezones
+  const bufferStart = new Date(expoStart.getTime() - 24 * 60 * 60 * 1000);
+  const bufferEnd = new Date(expoEnd.getTime() + 24 * 60 * 60 * 1000);
+
+  if (d < bufferStart || d > bufferEnd) {
+    const startStr = expoStart.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    const endStr = expoEnd.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    throw ApiError.badRequest(`The appointment date (${d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}) must fall within the expo dates (${startStr} – ${endStr})`);
   }
 
   // exhibitor: avoid a conflicting slot for the same exhibitor (same calendar day)

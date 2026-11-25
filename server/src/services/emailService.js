@@ -3,16 +3,37 @@ import nodemailer from "nodemailer";
 const configured = () => Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
 
 let transporter = null;
-if (configured()) {
-  transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: Number(process.env.SMTP_PORT || 587),
-    secure: Number(process.env.SMTP_PORT) === 465,
-    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
-  });
-  console.log("✔ SMTP configured:", process.env.SMTP_HOST);
-} else {
-  console.log("ℹ SMTP not configured — emails are logged to the console instead");
+let etherealChecked = false;
+
+async function getTransporter() {
+  if (transporter) return transporter;
+  if (configured()) {
+    transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: Number(process.env.SMTP_PORT || 587),
+      secure: Number(process.env.SMTP_PORT) === 465,
+      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+    });
+    console.log("✔ SMTP configured:", process.env.SMTP_HOST);
+    return transporter;
+  }
+  if (!etherealChecked && process.env.NODE_ENV !== "test") {
+    etherealChecked = true;
+    try {
+      const testAcc = await nodemailer.createTestAccount();
+      transporter = nodemailer.createTransport({
+        host: "smtp.ethereal.email",
+        port: 587,
+        secure: false,
+        auth: { user: testAcc.user, pass: testAcc.pass },
+      });
+      console.log("✔ Ethereal test email transport ready:", testAcc.user);
+      return transporter;
+    } catch {
+      console.log("ℹ SMTP not configured — emails are logged to the console instead");
+    }
+  }
+  return null;
 }
 
 const FROM = () => process.env.EMAIL_FROM || "EventSphere <no-reply@eventsphere.io>";
@@ -21,16 +42,24 @@ const CLIENT = () => process.env.CLIENT_URL || "http://localhost:5173";
 /* ------------------------------- send -------------------------------- */
 async function send({ to, subject, html, text }) {
   if (!to) throw new Error("Recipient email is required");
-  if (!configured()) {
-    if (process.env.NODE_ENV === "test") return { messageId: "silent", preview: false };
+  if (process.env.NODE_ENV === "test") return { messageId: "silent", sent: true, previewUrl: null };
+
+  const tx = await getTransporter();
+  if (!tx) {
     console.log("──────────────────── EMAIL (console) ────────────────────");
     console.log(`To      : ${to}`);
     console.log(`Subject : ${subject}`);
     console.log(text || html?.replace(/<[^>]+>/g, " ").slice(0, 400));
     console.log("─────────────────────────────────────────────────────────");
-    return { messageId: `console-${Date.now()}`, preview: false };
+    return { messageId: `console-${Date.now()}`, sent: true, previewUrl: null };
   }
-  return transporter.sendMail({ from: FROM(), to, subject, html, text });
+
+  const info = await tx.sendMail({ from: FROM(), to, subject, html, text });
+  const previewUrl = nodemailer.getTestMessageUrl(info) || null;
+  if (previewUrl) {
+    console.log(`✉ Email sent to ${to} — Preview: ${previewUrl}`);
+  }
+  return { messageId: info.messageId, sent: true, previewUrl };
 }
 
 /* ------------------------------ layouts ------------------------------ */
@@ -66,7 +95,7 @@ export const emailService = {
         `<p>Your <b>${role}</b> account has been created successfully.</p>
          <p>You can now sign in and complete your profile to get started.</p>`,
         "Sign in",
-        `${CLIENT()}/login`
+        `${CLIENT()}/#/login`
       ),
     });
   },

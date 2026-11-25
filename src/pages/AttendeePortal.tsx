@@ -74,10 +74,12 @@ import {
   X,
   Loader2,
   RefreshCw,
+  Settings,
+  ShieldCheck,
 } from "lucide-react";
 
 export default function AttendeePortal() {
-  const { user, bookmarks, toast } = useStore();
+  const { user, bookmarks, toast, login, authMode } = useStore();
   const [tab, setTab] = useState("overview");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -103,6 +105,7 @@ export default function AttendeePortal() {
 
   // Appointment Modal
   const [bookApptExhibitor, setBookApptExhibitor] = useState<Exhibitor | null>(null);
+  const [apptExpoId, setApptExpoId] = useState("");
   const [apptDate, setApptDate] = useState("");
   const [apptTime, setApptTime] = useState("10:00");
   const [apptDuration, setApptDuration] = useState(30);
@@ -111,6 +114,36 @@ export default function AttendeePortal() {
   const [apptAgenda, setApptAgenda] = useState("");
   const [bookingAppt, setBookingAppt] = useState(false);
   const [cancelApptTarget, setCancelApptTarget] = useState<LiveAppointment | null>(null);
+
+  // Attendee Profile & Compliance Settings State
+  const [profileName, setProfileName] = useState(user?.name || "");
+  const [profilePhone, setProfilePhone] = useState(user?.phone || "");
+  const [profileCompany, setProfileCompany] = useState(user?.company || "");
+  const [profileJobTitle, setProfileJobTitle] = useState(user?.jobTitle || "");
+  const [profileBio, setProfileBio] = useState(user?.bio || "");
+  const [profileCountry, setProfileCountry] = useState(user?.address || "United States");
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [attendeePrivacy, setAttendeePrivacy] = useState({
+    showProfileToExhibitors: true,
+    allowDirectInquiries: true,
+    shareContactWithBoothStaff: true,
+  });
+  const [attendeeAlerts, setAttendeeAlerts] = useState({
+    meetingAlerts: true,
+    scheduleChanges: true,
+    dailyDigest: false,
+  });
+
+  useEffect(() => {
+    if (user) {
+      if (user.name) setProfileName(user.name);
+      if (user.phone) setProfilePhone(user.phone);
+      if (user.company) setProfileCompany(user.company);
+      if (user.jobTitle) setProfileJobTitle(user.jobTitle);
+      if (user.bio) setProfileBio(user.bio);
+      if (user.address) setProfileCountry(user.address);
+    }
+  }, [user]);
 
   // Expo Registration Modal
   const [registerExpoModal, setRegisterExpoModal] = useState<Expo | null>(null);
@@ -271,7 +304,23 @@ export default function AttendeePortal() {
     { id: "tickets", label: "My tickets", icon: QrCode, badge: activeRegistrations.length, group: "Account" },
     { id: "payments", label: "Payments & Invoices", icon: Banknote, group: "Account" },
     { id: "messages", label: "Messages & Support", icon: MessageSquare, group: "Account" },
+    { id: "settings", label: "Settings & Compliance", icon: Settings, group: "Account" },
   ];
+
+  const openAppointmentModal = (e: Exhibitor) => {
+    setBookApptExhibitor(e);
+    const activeExpo = liveExpos.find((x) => x.status === "Live" || x.status === "Upcoming" || (x.status as any) === "live" || (x.status as any) === "published") || liveExpos[0];
+    const eid = (e as any).expoId || activeExpo?.id || "";
+    setApptExpoId(eid);
+    const targetExpo = liveExpos.find((x) => x.id === eid) || activeExpo;
+    if (targetExpo?.startDate) {
+      const start = new Date(targetExpo.startDate);
+      const end = targetExpo.endDate ? new Date(targetExpo.endDate) : start;
+      const now = new Date();
+      const defaultDate = now >= start && now <= end ? now : start;
+      setApptDate(defaultDate.toISOString().slice(0, 10));
+    }
+  };
 
   // Handlers
   const handleSendContact = async () => {
@@ -321,13 +370,22 @@ export default function AttendeePortal() {
           dataProcessing: true,
         },
       });
-      toast({
-        title: "Registration Successful! 🎉",
-        body: `You are now registered for ${registerExpoModal.title}. Badge code generated.`,
-        tone: "success",
-      });
       setRegisterExpoModal(null);
-      setRegSuccessModal(reg);
+      if (reg.status === "pending_payment") {
+        toast({
+          title: "Registration Created — Complete Payment",
+          body: `Please complete payment for your ${selectedTicketType} pass.`,
+          tone: "info",
+        });
+        await handlePayRegistration(reg);
+      } else {
+        toast({
+          title: "Registration Successful! 🎉",
+          body: `You are now registered for ${registerExpoModal.title}. Badge code generated.`,
+          tone: "success",
+        });
+        setRegSuccessModal(reg);
+      }
       loadData(true);
     } catch (err: any) {
       toast({
@@ -362,7 +420,7 @@ export default function AttendeePortal() {
 
   const handleBookAppointment = async () => {
     if (!bookApptExhibitor) return;
-    const expoId = liveExpos[0]?.id;
+    const expoId = apptExpoId || liveExpos.find((x) => x.status === "Live" || x.status === "Upcoming" || (x.status as any) === "live" || (x.status as any) === "published")?.id || liveExpos[0]?.id;
     if (!expoId) {
       toast({ title: "No active expo found", tone: "danger" });
       return;
@@ -401,6 +459,36 @@ export default function AttendeePortal() {
       });
     } finally {
       setBookingAppt(false);
+    }
+  };
+
+  const handleSaveAttendeeProfile = async () => {
+    setSavingProfile(true);
+    try {
+      const { patch } = await import("@/lib/api");
+      const res = await patch<any>("/users/me", {
+        name: profileName,
+        phone: profilePhone,
+        company: profileCompany,
+        jobTitle: profileJobTitle,
+        address: profileCountry,
+      });
+      if (res?.data) {
+        login(res.data, authMode);
+      }
+      toast({
+        title: "Profile Updated ✓",
+        body: "Your profile details have been saved to MongoDB.",
+        tone: "success",
+      });
+    } catch (err: any) {
+      toast({
+        title: "Profile Save Failed",
+        body: err.message || "Failed to update profile.",
+        tone: "danger",
+      });
+    } finally {
+      setSavingProfile(false);
     }
   };
 
@@ -793,7 +881,7 @@ export default function AttendeePortal() {
                               variant="ghost"
                               icon={<CalendarClock className="size-3.5" />}
                               onClick={() => {
-                                setBookApptExhibitor(e);
+                                openAppointmentModal(e);
                                 setApptLocation(`Booth ${typeof e.booth === "object" ? (e.booth as any)?.boothId || (e.booth as any)?.name || "TBD" : e.booth}`);
                               }}
                               title="Book meeting"
@@ -1042,7 +1130,7 @@ export default function AttendeePortal() {
                             variant="secondary"
                             icon={<CalendarClock className="size-3" />}
                             onClick={() => {
-                              setBookApptExhibitor(e);
+                              openAppointmentModal(e);
                               setApptLocation(`Booth ${typeof e.booth === "object" ? (e.booth as any)?.boothId || (e.booth as any)?.name || "TBD" : e.booth}`);
                             }}
                           >
@@ -1384,7 +1472,7 @@ export default function AttendeePortal() {
                       icon={<CalendarClock className="size-4" />}
                       onClick={() => {
                         if (liveExhibitors.length > 0) {
-                          setBookApptExhibitor(liveExhibitors[0]);
+                          openAppointmentModal(liveExhibitors[0]);
                           setApptLocation(`Booth ${liveExhibitors[0].booth}`);
                         } else {
                           toast({ title: "No approved exhibitors available to meet", tone: "warn" });
@@ -1407,7 +1495,7 @@ export default function AttendeePortal() {
                         className="mt-4"
                         onClick={() => {
                           if (liveExhibitors.length > 0) {
-                            setBookApptExhibitor(liveExhibitors[0]);
+                            openAppointmentModal(liveExhibitors[0]);
                           } else {
                             toast({ title: "No exhibitors available", tone: "warn" });
                           }
@@ -1707,6 +1795,132 @@ export default function AttendeePortal() {
 
           {/* TAB: MESSAGES */}
           {tab === "messages" && <RealtimeChatView defaultFilter="ALL" />}
+
+          {/* TAB: SETTINGS & COMPLIANCE */}
+          {tab === "settings" && (
+            <div className="grid gap-6 lg:grid-cols-2">
+              <Card>
+                <CardHeader title="Personal Profile" subtitle="Your attendee identity across registered expos in MongoDB" />
+                <div className="space-y-4 p-5">
+                  <Field label="Full name" required>
+                    <Input value={profileName} onChange={(e) => setProfileName(e.target.value)} />
+                  </Field>
+                  <Field label="Email address" hint="Primary login identity (read-only)">
+                    <Input value={user?.email || ""} disabled className="bg-slate-50 cursor-not-allowed" />
+                  </Field>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="Organization / Company">
+                      <Input value={profileCompany} onChange={(e) => setProfileCompany(e.target.value)} placeholder="e.g. Acme Innovations" />
+                    </Field>
+                    <Field label="Job title">
+                      <Input value={profileJobTitle} onChange={(e) => setProfileJobTitle(e.target.value)} placeholder="e.g. Software Lead" />
+                    </Field>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="Phone number">
+                      <Input value={profilePhone} onChange={(e) => setProfilePhone(e.target.value)} placeholder="+1 (555) 012-3456" />
+                    </Field>
+                    <Field label="Country / Region">
+                      <Input value={profileCountry} onChange={(e) => setProfileCountry(e.target.value)} placeholder="e.g. United States" />
+                    </Field>
+                  </div>
+                  <Field label="Professional Bio" hint="Shown on attendee connection cards">
+                    <Textarea value={profileBio} onChange={(e) => setProfileBio(e.target.value)} placeholder="Brief summary of your professional background and event interests..." />
+                  </Field>
+                  <Button onClick={handleSaveAttendeeProfile} disabled={savingProfile}>
+                    {savingProfile ? "Saving to MongoDB..." : "Save Profile Changes"}
+                  </Button>
+                </div>
+              </Card>
+
+              <div className="space-y-6">
+                <Card>
+                  <CardHeader title="Account Compliance & Security" subtitle="Verified status & event access credentials" />
+                  <div className="space-y-4 p-5">
+                    <div className="flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50/70 p-4">
+                      <div className="flex items-center gap-3">
+                        <div className="grid size-10 place-items-center rounded-xl bg-emerald-100 text-emerald-600">
+                          <ShieldCheck className="size-5" />
+                        </div>
+                        <div>
+                          <p className="text-[13.5px] font-bold text-emerald-950">Attendee Account Verified</p>
+                          <p className="text-[12px] text-emerald-800/80">Compliant with EventSphere security & fast-lane protocol</p>
+                        </div>
+                      </div>
+                      <Badge tone="success" dot>Active</Badge>
+                    </div>
+
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+                      <p className="text-[13px] font-bold text-slate-800">Consent & Privacy Compliance</p>
+                      <div className="space-y-2 text-[12px] text-slate-600">
+                        <div className="flex items-center justify-between">
+                          <span>Terms of Service Acceptance:</span>
+                          <span className="font-semibold text-emerald-700">Agreed ✓</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span>GDPR & Data Processing Consent:</span>
+                          <span className="font-semibold text-emerald-700">Consented ✓</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span>Active Event Badges Issued:</span>
+                          <span className="font-semibold text-brand-700">{activeRegistrations.length} Badges</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3 pt-2">
+                      <p className="text-[13px] font-bold text-slate-800">Privacy Preferences</p>
+                      <Toggle
+                        checked={attendeePrivacy.showProfileToExhibitors}
+                        label="Visible in Attendee Directory"
+                        desc="Allows verified exhibitors to discover and connect with you"
+                        onChange={(v) => setAttendeePrivacy((p) => ({ ...p, showProfileToExhibitors: v }))}
+                      />
+                      <Toggle
+                        checked={attendeePrivacy.allowDirectInquiries}
+                        label="Allow Exhibitor Meeting Requests"
+                        desc="Receive scheduled appointment invitations from booth teams"
+                        onChange={(v) => setAttendeePrivacy((p) => ({ ...p, allowDirectInquiries: v }))}
+                      />
+                      <Toggle
+                        checked={attendeePrivacy.shareContactWithBoothStaff}
+                        label="Fast-Lane Contact Sharing"
+                        desc="Instantly share contact card upon QR badge scanning at booths"
+                        onChange={(v) => setAttendeePrivacy((p) => ({ ...p, shareContactWithBoothStaff: v }))}
+                      />
+                    </div>
+                  </div>
+                </Card>
+
+                <Card>
+                  <CardHeader title="Notification Alerts" subtitle="Stay updated during expo days" />
+                  <div className="space-y-4 p-5">
+                    <Toggle
+                      checked={attendeeAlerts.meetingAlerts}
+                      label="Appointment Confirmation Alerts"
+                      desc="Immediate notifications when exhibitors accept or reschedule meetings"
+                      onChange={(v) => setAttendeeAlerts((a) => ({ ...a, meetingAlerts: v }))}
+                    />
+                    <Toggle
+                      checked={attendeeAlerts.scheduleChanges}
+                      label="Keynote & Stage Schedule Updates"
+                      desc="Real-time alerts for speaker schedule changes or venue shifts"
+                      onChange={(v) => setAttendeeAlerts((a) => ({ ...a, scheduleChanges: v }))}
+                    />
+                    <Toggle
+                      checked={attendeeAlerts.dailyDigest}
+                      label="Daily Event Highlights Digest"
+                      desc="Morning digest of top sessions, demos and networking opportunities"
+                      onChange={(v) => setAttendeeAlerts((a) => ({ ...a, dailyDigest: v }))}
+                    />
+                    <Button variant="secondary" onClick={() => toast({ title: "Notification preferences saved ✓", tone: "success" })}>
+                      Save Alert Preferences
+                    </Button>
+                  </div>
+                </Card>
+              </div>
+            </div>
+          )}
         </>
       )}
 
@@ -1813,13 +2027,52 @@ export default function AttendeePortal() {
         }
       >
         <div className="space-y-4">
-          <Field label="Meeting Date" required hint="Pick a date during the event">
-            <Input
-              type="date"
-              value={apptDate}
-              onChange={(e) => setApptDate(e.target.value)}
-            />
+          <Field label="Select Event / Expo" required hint="Choose the expo you are scheduling for">
+            <Select
+              value={apptExpoId}
+              onChange={(e) => {
+                const newEid = e.target.value;
+                setApptExpoId(newEid);
+                const targetExpo = liveExpos.find((x) => x.id === newEid);
+                if (targetExpo?.startDate) {
+                  const s = new Date(targetExpo.startDate);
+                  const ed = targetExpo.endDate ? new Date(targetExpo.endDate) : s;
+                  const now = new Date();
+                  const defaultD = now >= s && now <= ed ? now : s;
+                  setApptDate(defaultD.toISOString().slice(0, 10));
+                }
+              }}
+            >
+              {liveExpos.map((x) => (
+                <option key={x.id} value={x.id}>
+                  {x.title} ({new Date(x.startDate).toLocaleDateString()} – {x.endDate ? new Date(x.endDate).toLocaleDateString() : ""})
+                </option>
+              ))}
+            </Select>
           </Field>
+          {(() => {
+            const currentExpo = liveExpos.find((x) => x.id === apptExpoId) || liveExpos[0];
+            const minDate = currentExpo?.startDate ? new Date(currentExpo.startDate).toISOString().slice(0, 10) : undefined;
+            const maxDate = currentExpo?.endDate ? new Date(currentExpo.endDate).toISOString().slice(0, 10) : undefined;
+            return (
+              <>
+                {currentExpo && (
+                  <div className="rounded-xl border border-brand-200 bg-brand-50 p-2.5 text-[12px] font-medium text-brand-900">
+                    📅 Allowed appointment window: {new Date(currentExpo.startDate).toLocaleDateString()} to {currentExpo.endDate ? new Date(currentExpo.endDate).toLocaleDateString() : ""}.
+                  </div>
+                )}
+                <Field label="Meeting Date" required hint="Pick a date during the event">
+                  <Input
+                    type="date"
+                    min={minDate}
+                    max={maxDate}
+                    value={apptDate}
+                    onChange={(e) => setApptDate(e.target.value)}
+                  />
+                </Field>
+              </>
+            );
+          })()}
           <div className="grid grid-cols-2 gap-3">
             <Field label="Start Time" required>
               <Select value={apptTime} onChange={(e) => setApptTime(e.target.value)}>

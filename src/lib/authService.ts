@@ -23,6 +23,8 @@ export type AuthResult = {
   user: SessionUser;
   mode: "live" | "demo";
   message?: string;
+  emailSent?: boolean;
+  emailPreviewUrl?: string | null;
 };
 
 const DEMO_ACCOUNTS: Record<Role, { name: string; email: string; company: string; avatar: string }> = {
@@ -159,7 +161,7 @@ export async function register(payload: {
   phone?: string;
 }): Promise<AuthResult> {
   try {
-    const { data } = await post<{ user: any; token: string }>(endpoints.auth.register, {
+    const { data } = await post<{ user: any; token: string; emailSent?: boolean; emailPreviewUrl?: string | null }>(endpoints.auth.register, {
       name: payload.name.trim(),
       email: payload.email.trim().toLowerCase(),
       password: payload.password,
@@ -171,13 +173,12 @@ export async function register(payload: {
       consent: true,
     });
 
-    if (data?.token && typeof window !== "undefined") {
-      try {
-        localStorage.setItem("es_token", data.token);
-      } catch {}
-    }
-
-    return { user: mapUser(data.user), mode: "live" };
+    return {
+      user: mapUser(data.user),
+      mode: "live",
+      emailSent: data.emailSent ?? true,
+      emailPreviewUrl: data.emailPreviewUrl ?? null,
+    };
   } catch (err: any) {
     if (err?.status && err.status >= 400 && err.status < 500) throw err;
 

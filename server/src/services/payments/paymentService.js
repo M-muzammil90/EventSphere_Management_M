@@ -131,6 +131,18 @@ class PaymentService {
     const order = await Order.findById(orderId).populate("expoId").populate("userId");
     if (!order) throw new Error("Order not found");
 
+    // Idempotency guard: prevent duplicate payment processing
+    if (order.paymentStatus === "PAID") {
+      const existingPayment = await Payment.findOne({ orderId: order._id, status: "PAID" });
+      return {
+        success: true,
+        status: "PAID",
+        alreadyPaid: true,
+        order,
+        payment: existingPayment,
+      };
+    }
+
     const paymentRecord = await Payment.findOne({ orderId: order._id }).sort({ createdAt: -1 });
     const activeProviderName = providerName || paymentRecord?.provider || "payfast";
     const provider = this.getProvider(activeProviderName);

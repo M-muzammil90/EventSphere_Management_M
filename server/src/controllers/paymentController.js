@@ -3,6 +3,9 @@ import Order from "../models/Order.js";
 import Invoice from "../models/Invoice.js";
 import Refund from "../models/Refund.js";
 import Expo from "../models/Expo.js";
+import Booth from "../models/Booth.js";
+import { BoothPricing, TicketPricing, PricingSetting } from "../models/Pricing.js";
+import { calculatePrice } from "./pricingController.js";
 import { ApiError, ApiResponse, asyncHandler, paginate } from "../utils/ApiResponse.js";
 import paymentService from "../services/payments/paymentService.js";
 import invoiceService from "../services/invoiceService.js";
@@ -13,6 +16,69 @@ import invoiceService from "../services/invoiceService.js";
 export const getProviderStatus = asyncHandler(async (_req, res) => {
   const statuses = paymentService.getProvidersStatus();
   return ApiResponse.ok(res, statuses);
+});
+
+/* =====================================================================
+   PRICE QUOTE (Booth / Ticket / Promo / Tax)
+   ===================================================================== */
+export const getPaymentQuote = asyncHandler(async (req, res) => {
+  const { purpose, expo, booth, ticketType = "Standard", quantity = 1, promoCode } = req.body;
+  if (!purpose || !expo) throw ApiError.badRequest("purpose and expo are required");
+
+  const settings = await PricingSetting.findOne({ expo });
+  const taxRate = settings?.taxRate ?? Number(process.env.DEFAULT_TAX_RATE || 5);
+  const currency = settings?.currency || process.env.CURRENCY || "USD";
+
+  let basePrice = 0;
+  let discountPercent = 0;
+
+  if (purpose === "booth_reservation") {
+    if (!booth) throw ApiError.badRequest("booth is required for booth_reservation quote");
+    const boothDoc = await Booth.findOne({ _id: booth, expo });
+    if (!boothDoc) throw ApiError.notFound("Booth not found for this expo");
+    const bp = await BoothPricing.findOne({ expo, category: boothDoc.category, status: "active" });
+    basePrice = bp?.effectivePrice ?? boothDoc.price ?? 2500;
+  } else if (purpose === "event_ticket") {
+    const tp = await TicketPricing.findOne({ expo, name: ticketType, status: "active" });
+    basePrice = tp?.price ?? (ticketType === "VIP" ? 299 : ticketType === "Workshop" ? 149 : ticketType === "Standard" ? 99 : 0);
+  } else {
+    basePrice = 100;
+  }
+
+  let appliedPromo = null;
+  if (promoCode) {
+    const code = String(promoCode).trim().toUpperCase();
+    if (code === "EARLY10" || code === "VIP10") {
+      discountPercent = 10;
+      appliedPromo = code;
+    } else if (code === "SAVE20") {
+      discountPercent = 20;
+      appliedPromo = code;
+    }
+  } else if (settings?.earlyBirdEnabled && settings?.earlyBirdPercent > 0) {
+    discountPercent = settings.earlyBirdPercent;
+  }
+
+  const calc = calculatePrice({
+    basePrice,
+    quantity: Number(quantity) || 1,
+    discountPercent,
+    taxRate,
+    multiBoothPercent: purpose === "booth_reservation" && settings?.multiBoothEnabled ? settings.multiBoothPercent : 0,
+    multiBoothMinQty: settings?.multiBoothMinQty || 2,
+  });
+
+  const mode = process.env.PAYMENT_MODE || "demo";
+
+  return ApiResponse.ok(res, {
+    ...calc,
+    currency,
+    promoCode: appliedPromo,
+    mode,
+    ...(mode === "demo"
+      ? { demoNotice: "DEMO PAYMENT MODE: Simulated gateway — no real money is charged." }
+      : {}),
+  });
 });
 
 /* =====================================================================

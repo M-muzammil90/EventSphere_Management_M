@@ -14,13 +14,17 @@ export const registerForExpo = asyncHandler(async (req, res) => {
 
   const expo = await Expo.findById(expoId);
   if (!expo) throw ApiError.notFound("Expo not found");
-  if (!["published", "live"].includes(expo.status)) {
+  if (!["published", "live", "upcoming"].includes(expo.status)) {
     throw ApiError.forbidden("Registration is not open for this expo");
   }
 
   // Duplicate guard (also enforced by the {expo,user} unique index)
   const existing = await EventRegistration.findOne({ expo: expoId, user: req.user._id });
   if (existing && existing.status !== "cancelled") {
+    if (existing.status === "pending_payment") {
+      const populatedExisting = await existing.populate("expo", "title slug startDate endDate venue");
+      return ApiResponse.ok(res, populatedExisting, "Existing registration retrieved — please complete payment.");
+    }
     throw ApiError.conflict(`You are already registered for ${expo.title} (${existing.ticketType})`);
   }
 
@@ -31,7 +35,7 @@ export const registerForExpo = asyncHandler(async (req, res) => {
 
   // ---- pricing + capacity (atomic increment guards sold-out) ----
   const ticket = await TicketPricing.findOne({ expo: expoId, name: ticketType });
-  const unitPrice = ticket?.price ?? 0;
+  const unitPrice = ticket?.price ?? (ticketType === "VIP" ? (expo.startingPrice ? expo.startingPrice * 2.5 : 299) : ticketType === "Workshop" ? 149 : ticketType === "Standard" ? (expo.startingPrice || 99) : 0);
   const taxRate = ticket ? 0 : 5; // tax configured at expo level
 
   if (ticket) {

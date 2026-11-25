@@ -269,15 +269,18 @@ export const applyForExpo = asyncHandler(async (req, res) => {
     throw ApiError.forbidden("This expo is archived and no longer accepting applications");
   }
 
-  // Duplicate guard: update existing application if one already exists
+  // Duplicate guard: prevent duplicate active/pending applications for the same expo
   const dupe = await ExhibitorApplication.findOne({ expo: expo._id, exhibitor: profile._id });
   if (dupe) {
+    if (dupe.status !== "rejected") {
+      throw ApiError.conflict("You have already submitted an application for this expo");
+    }
     dupe.tier = tier ?? dupe.tier;
     dupe.requestedZone = requestedZone ?? dupe.requestedZone;
     dupe.requestedCategory = requestedCategory ?? dupe.requestedCategory;
     dupe.showcaseSummary = showcaseSummary ?? dupe.showcaseSummary;
     dupe.boothQty = boothQty ?? dupe.boothQty;
-    if (dupe.status === "rejected") dupe.status = "pending";
+    dupe.status = "pending";
     dupe.rejectionReason = undefined;
     dupe.submittedAt = new Date();
     await dupe.save();
@@ -407,13 +410,13 @@ export const reviewApplication = asyncHandler(async (req, res) => {
     .populate("exhibitor", "user company.name contact.email")
     .populate("expo", "title slug venue");
   if (!application) throw ApiError.notFound("Application not found");
-  if (application.status === status) {
-    return ApiResponse.ok(res, application, `Application is already ${status}`);
+  if (["approved", "rejected"].includes(application.status)) {
+    throw ApiError.conflict(`Application has already been ${application.status}`);
   }
 
   if (status === "rejected") {
     if (!rejectionReason?.trim()) {
-      rejectionReason = "Application does not meet current criteria";
+      throw ApiError.badRequest("Rejection reason is required");
     }
     if (application.booth) {
       await Booth.findByIdAndUpdate(application.booth, {

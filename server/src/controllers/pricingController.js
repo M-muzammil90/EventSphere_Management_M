@@ -48,6 +48,21 @@ export const upsertBoothPrice = asyncHandler(async (req, res) => {
   return ApiResponse.ok(res, price, `${category} pricing saved for ${target.title}`);
 });
 
+export const updateBoothPrice = asyncHandler(async (req, res) => {
+  const existing = await BoothPricing.findById(req.params.id);
+  if (!existing) throw ApiError.notFound("Booth price not found");
+
+  const basePrice = req.body.basePrice !== undefined ? Number(req.body.basePrice) : existing.basePrice;
+  const discountPercent = req.body.discountPercent !== undefined ? Number(req.body.discountPercent) : existing.discountPercent;
+  const effectivePrice = Math.round(basePrice * (1 - discountPercent / 100) * 100) / 100;
+
+  Object.assign(existing, req.body, { basePrice, discountPercent, effectivePrice });
+  await existing.save();
+  await existing.populate("expo", "title slug banner");
+
+  return ApiResponse.ok(res, existing, "Booth pricing updated");
+});
+
 export const deleteBoothPrice = asyncHandler(async (req, res) => {
   const price = await BoothPricing.findByIdAndDelete(req.params.id);
   if (!price) throw ApiError.notFound("Price not found");
@@ -95,6 +110,21 @@ export const upsertTicketType = asyncHandler(async (req, res) => {
   );
 
   return ApiResponse.ok(res, ticket, `${name} ticket saved for ${target.title}`);
+});
+
+export const updateTicketType = asyncHandler(async (req, res) => {
+  const ticket = await TicketPricing.findById(req.params.id);
+  if (!ticket) throw ApiError.notFound("Ticket type not found");
+
+  if (req.body.capacity !== undefined && Number(req.body.capacity) < ticket.soldCount) {
+    throw ApiError.conflict(`Capacity cannot be below the ${ticket.soldCount} tickets already sold`);
+  }
+
+  Object.assign(ticket, req.body);
+  await ticket.save();
+  await ticket.populate("expo", "title slug banner");
+
+  return ApiResponse.ok(res, ticket, "Ticket type updated");
 });
 
 export const deleteTicketType = asyncHandler(async (req, res) => {
@@ -159,4 +189,4 @@ export const calculatePrice = ({ basePrice, quantity = 1, discountPercent = 0, t
   };
 };
 
-export default { getBoothPrices, getPublicBoothPrices, upsertBoothPrice, deleteBoothPrice, getTicketTypes, upsertTicketType, deleteTicketType, getPricingSettings, updatePricingSettings, calculatePrice };
+export default { getBoothPrices, getPublicBoothPrices, upsertBoothPrice, updateBoothPrice, deleteBoothPrice, getTicketTypes, upsertTicketType, updateTicketType, deleteTicketType, getPricingSettings, updatePricingSettings, calculatePrice };

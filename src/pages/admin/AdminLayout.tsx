@@ -26,6 +26,7 @@ import {
   Users,
   Sparkles,
   Banknote,
+  Tag,
   X,
 } from "lucide-react";
 
@@ -37,6 +38,7 @@ const NAV = [
   { to: "/admin/feedback", label: "Feedback", icon: MessageSquareHeart, badge: "9" },
   { to: "/admin/schedule", label: "Schedule", icon: Sparkles },
   { to: "/admin/floor-plan", label: "Floor Plan & Booths", icon: Map },
+  { to: "/admin/pricing", label: "Pricing & Tickets", icon: Tag },
   { to: "/admin/payments", label: "Payments & Invoices", icon: Banknote },
   { to: "/admin/analytics", label: "Analytics & Reports", icon: BarChart3 },
   { to: "/admin/messages", label: "Messages", icon: MessageSquare, badge: "5" },

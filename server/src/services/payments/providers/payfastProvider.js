@@ -59,7 +59,6 @@ export class PayFastProvider extends PaymentProvider {
     const payload = {
       MERCHANT_ID: this.merchantId,
       MERCHANT_NAME: this.merchantName,
-      TOKEN: this.securedKey,
       BASKET_ID: order.orderNumber,
       TXNAMT: Number(order.totalAmount).toFixed(2),
       CUSTOMER_MOBILE_NO: order.billingDetails?.phone || user?.phone || "03001234567",

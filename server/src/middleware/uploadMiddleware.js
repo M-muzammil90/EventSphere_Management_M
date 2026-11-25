@@ -4,6 +4,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { ApiError } from "../utils/ApiResponse.js";
+import { isCloudinaryConfigured } from "../config/cloudinary.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const UPLOAD_ROOT = path.resolve(__dirname, "../../uploads");
@@ -53,14 +54,14 @@ const makeFilter = (allowed) => (_req, file, cb) => {
    --------------------------------------------------------------------- */
 const imageUpload = (subdir) =>
   multer({
-    storage: process.env.CLOUDINARY_API_KEY ? memoryStorage() : diskStorage(subdir),
+    storage: isCloudinaryConfigured() ? memoryStorage : diskStorage(subdir),
     fileFilter: makeFilter(IMAGE_TYPES),
     limits: { fileSize: MAX_IMAGE_MB * 1024 * 1024, files: 1 },
   }).single("file");
 
 const docUpload = (subdir) =>
   multer({
-    storage: process.env.CLOUDINARY_API_KEY ? memoryStorage() : diskStorage(subdir),
+    storage: isCloudinaryConfigured() ? memoryStorage : diskStorage(subdir),
     fileFilter: makeFilter(DOC_TYPES),
     limits: { fileSize: MAX_DOC_MB * 1024 * 1024, files: 1 },
   }).single("file");

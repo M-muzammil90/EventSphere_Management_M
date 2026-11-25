@@ -1,0 +1,64 @@
+services:
+  mongo:
+    image: mongo:7
+    container_name: eventsphere-mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: eventsphere-backend
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+    ports:
+      - "5000:5000"
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: 5000
+      MONGO_URI: mongodb://mongo:27017/eventsphere
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      JWT_COOKIE_NAME: ${JWT_COOKIE_NAME:-es_token}
+      JWT_COOKIE_SECURE: ${JWT_COOKIE_SECURE:-false}
+      JWT_COOKIE_SAME_SITE: ${JWT_COOKIE_SAME_SITE:-lax}
+      CLIENT_URL: ${CLIENT_URL:-http://localhost:8080}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080,http://localhost:5173}
+      PAYMENT_MODE: ${PAYMENT_MODE:-demo}
+      DEFAULT_TAX_RATE: ${DEFAULT_TAX_RATE:-5}
+      CURRENCY: ${CURRENCY:-USD}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:5000/api/health"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:5000/api/v1}
+        VITE_SOCKET_URL: ${VITE_SOCKET_URL:-http://localhost:5000}
+        VITE_PAYMENT_MODE: ${VITE_PAYMENT_MODE:-demo}
+    container_name: eventsphere-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "8080:80"
+
+volumes:
+  mongo_data:

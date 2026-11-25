@@ -1,8 +1,10 @@
 import crypto from "node:crypto";
 import User from "../models/User.js";
 import ExhibitorProfile from "../models/ExhibitorProfile.js";
+import RevokedToken from "../models/RevokedToken.js";
 import { ApiError, ApiResponse, asyncHandler } from "../utils/ApiResponse.js";
-import { signToken, cookieOptions, clearCookieOptions, cookieName, hashToken } from "../utils/generateToken.js";
+import { signToken, verifyToken, cookieOptions, clearCookieOptions, cookieName, hashToken } from "../utils/generateToken.js";
+import { setCsrfCookie, CSRF_COOKIE_NAME } from "../middleware/csrfMiddleware.js";
 import { assertPublicRegisterableRole } from "../middleware/roleMiddleware.js";
 import { notificationService } from "../services/notificationService.js";
 import emailService from "../services/emailService.js";
@@ -10,11 +12,12 @@ import { uploadAsset } from "../services/cloudinaryService.js";
 
 /* Sends the JWT as an HttpOnly cookie AND returns it in the body once so
    non-browser clients can use the Authorization header. */
-const sendAuthResponse = (res, user, statusCode = 200, message) => {
+const sendAuthResponse = (res, user, statusCode = 200, message, extra = {}) => {
   const token = signToken({ id: user._id, role: user.role, email: user.email });
   res.cookie(cookieName(), token, cookieOptions());
+  const csrfToken = setCsrfCookie(res);
   // ApiResponse.ok hard-codes 200, so build the envelope directly here
-  return res.status(statusCode).json({ success: true, data: { user: user.safeJSON(), token }, ...(message ? { message } : {}) });
+  return res.status(statusCode).json({ success: true, data: { user: user.safeJSON(), token, csrfToken, ...extra }, ...(message ? { message } : {}) });
 };
 
 /* ============================ REGISTER ============================= */
@@ -56,9 +59,17 @@ export const register = asyncHandler(async (req, res) => {
     priority: "normal",
   });
 
-  emailService.sendWelcome({ to: user.email, name: user.name, role }).catch(() => {});
+  let emailResult = { sent: false, previewUrl: null };
+  try {
+    emailResult = await emailService.sendWelcome({ to: user.email, name: user.name, role });
+  } catch (err) {
+    console.error("Welcome email failed:", err.message);
+  }
 
-  return sendAuthResponse(res, user, 201, "Account created successfully");
+  return sendAuthResponse(res, user, 201, "Account created successfully. Please sign in to continue.", {
+    emailSent: Boolean(emailResult?.sent),
+    emailPreviewUrl: emailResult?.previewUrl || null,
+  });
 });
 
 /* ============================= LOGIN =============================== */
@@ -80,8 +91,34 @@ export const login = asyncHandler(async (req, res) => {
 
 /* ============================= LOGOUT ============================== */
 export const logout = asyncHandler(async (req, res) => {
+  let token = req.cookies?.[cookieName()];
+  const header = req.headers.authorization;
+  if (!token && header?.startsWith("Bearer ")) token = header.slice(7);
+
+  if (token) {
+    try {
+      const decoded = verifyToken(token);
+      const expiresAt = decoded.exp ? new Date(decoded.exp * 1000) : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+      await RevokedToken.updateOne(
+        { tokenHash: hashToken(token) },
+        { $setOnInsert: { tokenHash: hashToken(token), user: decoded.id, expiresAt } },
+        { upsert: true }
+      );
+    } catch {
+      // Token already invalid/expired — still clear cookies cleanly
+    }
+  }
+
   res.clearCookie(cookieName(), clearCookieOptions());
+  res.clearCookie(CSRF_COOKIE_NAME, { path: "/" });
   return ApiResponse.ok(res, null, "Signed out successfully");
+});
+
+/* =========================== CSRF TOKEN ============================ */
+export const getCsrfToken = asyncHandler(async (req, res) => {
+  const existing = req.cookies?.[CSRF_COOKIE_NAME];
+  const csrfToken = setCsrfCookie(res, existing);
+  return ApiResponse.ok(res, { csrfToken });
 });
 
 /* ============================== ME ================================ */

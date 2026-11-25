@@ -10,6 +10,9 @@ export type User = {
   company?: string;
   avatar?: string;
   jobTitle?: string;
+  phone?: string;
+  bio?: string;
+  address?: string;
 };
 
 /** "live" = talking to the Express API · "demo" = mock data (backend offline) */

@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import Expo from "../models/Expo.js";
 import Booth from "../models/Booth.js";
 import Session from "../models/Session.js";
@@ -14,28 +15,49 @@ import { ApiResponse, asyncHandler } from "../utils/ApiResponse.js";
 /* ------------------------------------------------------------------
    Helper: resolve a date range from ?range=24h|7d|30d|ytd|all|custom
    ------------------------------------------------------------------ */
-function resolveRange(from, to) {
+function resolveRange(from, to, range) {
   const now = new Date();
   let start = new Date(0);
-  if (from) start = new Date(from);
-  else if (to) start = new Date(0);
-  else start = new Date(now.getFullYear(), 0, 1);
+  if (from) {
+    start = new Date(from);
+  } else if (range) {
+    const r = String(range).toLowerCase();
+    if (r === "24h") start = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    else if (r === "7d") start = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    else if (r === "30d") start = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    else if (r === "ytd") start = new Date(now.getFullYear(), 0, 1);
+    else if (r === "all") start = new Date(0);
+    else start = new Date(now.getFullYear(), 0, 1);
+  } else if (to) {
+    start = new Date(0);
+  } else {
+    start = new Date(0);
+  }
   const end = to ? new Date(to) : now;
   return { start, end };
 }
 
+function toObjectId(id) {
+  if (!id || id === "all" || id === "All expos") return null;
+  if (Array.isArray(id)) return { $in: id.filter((x) => mongoose.Types.ObjectId.isValid(x)).map((x) => new mongoose.Types.ObjectId(x)) };
+  return mongoose.Types.ObjectId.isValid(id) ? new mongoose.Types.ObjectId(id) : null;
+}
+
+const PAID_STATUSES = ["PAID", "paid"];
+
 const revenueMatch = (start, end) => ({
   createdAt: { $gte: start, $lte: end },
-  status: { $in: ["paid", "awaiting_confirmation"] },
+  status: { $in: PAID_STATUSES },
 });
 
 /* =====================================================================
    OVERVIEW  — every number computed from MongoDB
    ===================================================================== */
 export const getOverview = asyncHandler(async (req, res) => {
-  const { from, to, expo: expoId } = req.query;
-  const { start, end } = resolveRange(from, to);
-  const expoFilter = expoId ? { expo: Array.isArray(expoId) ? { $in: expoId } : expoId } : {};
+  const { from, to, range, expo: expoId } = req.query;
+  const { start, end } = resolveRange(from, to, range);
+  const oid = toObjectId(expoId);
+  const expoFilter = oid ? { expo: oid } : {};
 
   const [
     totalExpos,
@@ -59,15 +81,15 @@ export const getOverview = asyncHandler(async (req, res) => {
     ExhibitorApplication.countDocuments({ status: { $in: ["pending", "under_review"] } }),
     ExhibitorApplication.countDocuments({ status: "approved" }),
     Booth.aggregate([
-      ...(expoId ? [{ $match: { expo: Array.isArray(expoId) ? { $in: expoId } : expoId } }] : []),
+      ...(oid ? [{ $match: { expo: oid } }] : []),
       { $group: { _id: null, total: { $sum: 1 }, booked: { $sum: { $cond: [{ $eq: ["$status", "booked"] }, 1, 0] } }, reserved: { $sum: { $cond: [{ $eq: ["$status", "reserved"] }, 1, 0] } }, available: { $sum: { $cond: [{ $eq: ["$status", "available"] }, 1, 0] } } } },
     ]),
     Payment.aggregate([
-      { $match: revenueMatch(start, end) },
-      { $group: { _id: "$currency", total: { $sum: "$total" }, count: { $sum: 1 }, genuinelyPaid: { $sum: { $cond: ["$gatewayVerified", "$total", 0] } } } },
+      { $match: { ...revenueMatch(start, end), ...expoFilter } },
+      { $group: { _id: "$currency", total: { $sum: { $ifNull: ["$total", "$amount"] } }, count: { $sum: 1 }, genuinelyPaid: { $sum: { $cond: ["$gatewayVerified", { $ifNull: ["$total", "$amount"] }, 0] } } } },
     ]),
     Session.aggregate([
-      ...(expoId ? [{ $match: { expo: Array.isArray(expoId) ? { $in: expoId } : expoId } }] : []),
+      ...(oid ? [{ $match: { expo: oid } }] : []),
       { $group: { _id: null, total: { $sum: 1 }, registrations: { $sum: "$registeredCount" }, capacity: { $sum: "$capacity" } } },
     ]),
     Feedback.aggregate([
@@ -135,10 +157,11 @@ export const getOverview = asyncHandler(async (req, res) => {
    ATTENDEE ENGAGEMENT REPORT
    ===================================================================== */
 export const getAttendeeAnalytics = asyncHandler(async (req, res) => {
-  const { from, to, expo: expoId } = req.query;
-  const { start, end } = resolveRange(from, to);
+  const { from, to, range, expo: expoId } = req.query;
+  const { start, end } = resolveRange(from, to, range);
+  const oid = toObjectId(expoId);
 
-  const matchReg = { createdAt: { $gte: start, $lte: end }, ...(expoId ? { expo: expoId } : {}) };
+  const matchReg = { createdAt: { $gte: start, $lte: end }, ...(oid ? { expo: oid } : {}) };
 
   const [byCountry, byTicket, byStatus, acquisition, engagement] = await Promise.all([
     EventRegistration.aggregate([
@@ -177,7 +200,8 @@ export const getAttendeeAnalytics = asyncHandler(async (req, res) => {
    ===================================================================== */
 export const getBoothAnalytics = asyncHandler(async (req, res) => {
   const { expo: expoId } = req.query;
-  const match = expoId ? { expo: expoId } : {};
+  const oid = toObjectId(expoId);
+  const match = oid ? { expo: oid } : {};
 
   const [byZone, byStatus, byCategory, topBooths, revenueByExpo] = await Promise.all([
     Booth.aggregate([
@@ -226,7 +250,8 @@ export const getBoothAnalytics = asyncHandler(async (req, res) => {
    ===================================================================== */
 export const getSessionAnalytics = asyncHandler(async (req, res) => {
   const { expo: expoId } = req.query;
-  const match = expoId ? { expo: expoId } : {};
+  const oid = toObjectId(expoId);
+  const match = oid ? { expo: oid } : {};
 
   const [byType, byTrack, topSessions, byHour, summary] = await Promise.all([
     Session.aggregate([
@@ -303,8 +328,8 @@ export const getEventAnalytics = asyncHandler(async (req, res) => {
       },
     ]),
     Payment.aggregate([
-      { $match: { status: { $in: ["paid", "awaiting_confirmation"] } } },
-      { $group: { _id: "$expo", total: { $sum: "$total" } } },
+      { $match: { status: { $in: PAID_STATUSES } } },
+      { $group: { _id: "$expo", total: { $sum: { $ifNull: ["$total", "$amount"] } } } },
     ]),
     Feedback.aggregate([
       {
@@ -350,20 +375,22 @@ export const getEventAnalytics = asyncHandler(async (req, res) => {
    REVENUE REPORT
    ===================================================================== */
 export const getRevenueAnalytics = asyncHandler(async (req, res) => {
-  const { from, to, expo: expoId } = req.query;
-  const { start, end } = resolveRange(from, to);
+  const { from, to, range, expo: expoId } = req.query;
+  const { start, end } = resolveRange(from, to, range);
+  const oid = toObjectId(expoId);
 
-  const match = { ...revenueMatch(start, end), ...(expoId ? { expo: expoId } : {}) };
+  const match = { ...revenueMatch(start, end), ...(oid ? { expo: oid } : {}) };
+  const allPaymentsMatch = { createdAt: { $gte: start, $lte: end }, ...(oid ? { expo: oid } : {}) };
 
   const [byMonth, byPurpose, byStatus, byCurrency, topExpos] = await Promise.all([
     Payment.aggregate([
       { $match: match },
-      { $group: { _id: { $dateToString: { format: "%Y-%m", date: "$createdAt" } }, total: { $sum: "$total" }, count: { $sum: 1 } } },
+      { $group: { _id: { $dateToString: { format: "%Y-%m", date: "$createdAt" } }, total: { $sum: { $ifNull: ["$total", "$amount"] } }, count: { $sum: 1 } } },
       { $sort: { _id: 1 } },
     ]),
-    Payment.aggregate([{ $match: match }, { $group: { _id: "$purpose", total: { $sum: "$total" }, count: { $sum: 1 } } }, { $sort: { total: -1 } }]),
-    Payment.aggregate([{ $match: match }, { $group: { _id: "$status", count: { $sum: 1 }, total: { $sum: "$total" } } }]),
-    Payment.aggregate([{ $match: match }, { $group: { _id: "$currency", total: { $sum: "$total" } } }]),
+    Payment.aggregate([{ $match: match }, { $group: { _id: "$purpose", total: { $sum: { $ifNull: ["$total", "$amount"] } }, count: { $sum: 1 } } }, { $sort: { total: -1 } }]),
+    Payment.aggregate([{ $match: allPaymentsMatch }, { $group: { _id: "$status", count: { $sum: 1 }, total: { $sum: { $ifNull: ["$total", "$amount"] } } } }]),
+    Payment.aggregate([{ $match: match }, { $group: { _id: "$currency", total: { $sum: { $ifNull: ["$total", "$amount"] } } } }]),
     Payment.aggregate([
       { $match: match },
       { $group: { _id: "$expo", total: { $sum: "$total" } } },

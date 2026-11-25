@@ -807,14 +807,44 @@ export async function sendLiveMessage(conversationId: string, text: string): Pro
 }
 
 /* ========================== ANALYTICS OVERVIEW ====================== */
-export async function fetchLiveAnalyticsOverview(): Promise<any> {
+export async function fetchLiveAnalyticsOverview(params: Record<string, any> = {}): Promise<any> {
   try {
-    const res = await get<any>("/analytics/overview");
+    const query = new URLSearchParams(params).toString();
+    const res = await get<any>(`/analytics/overview${query ? `?${query}` : ""}`);
     if (res.success && res.data) return res.data;
   } catch (err) {
-    console.warn("Live API /analytics/overview fallback:", err);
+    console.warn("Live API /analytics/overview error:", err);
   }
   return null;
+}
+
+export async function fetchLiveAttendeeAnalytics(params: Record<string, any> = {}): Promise<any> {
+  const query = new URLSearchParams(params).toString();
+  const res = await get<any>(`/analytics/attendees${query ? `?${query}` : ""}`);
+  return res.data || null;
+}
+
+export async function fetchLiveBoothAnalytics(params: Record<string, any> = {}): Promise<any> {
+  const query = new URLSearchParams(params).toString();
+  const res = await get<any>(`/analytics/booths${query ? `?${query}` : ""}`);
+  return res.data || null;
+}
+
+export async function fetchLiveSessionAnalytics(params: Record<string, any> = {}): Promise<any> {
+  const query = new URLSearchParams(params).toString();
+  const res = await get<any>(`/analytics/sessions${query ? `?${query}` : ""}`);
+  return res.data || null;
+}
+
+export async function fetchLiveEventAnalytics(): Promise<any[]> {
+  const res = await get<any[]>("/analytics/events");
+  return res.data || [];
+}
+
+export async function fetchLiveRevenueAnalytics(params: Record<string, any> = {}): Promise<any> {
+  const query = new URLSearchParams(params).toString();
+  const res = await get<any>(`/analytics/revenue${query ? `?${query}` : ""}`);
+  return res.data || null;
 }
 
 /* ============================ ORDERS & PAYMENTS ===================== */
@@ -1432,4 +1462,123 @@ export async function markNotificationRead(id: string): Promise<any> {
 export async function markAllNotificationsRead(): Promise<any> {
   return await patch("/notifications/read-all", {});
 }
+
+/* ============================ PRICING MANAGEMENT ==================== */
+export interface LiveBoothPricing {
+  _id: string;
+  expo: { _id: string; title: string; slug?: string } | string;
+  category: "Small" | "Medium" | "Large" | "Island";
+  sqm: number;
+  basePrice: number;
+  currency: string;
+  discountPercent: number;
+  effectivePrice: number;
+  status: "active" | "draft" | "archived";
+  notes?: string;
+}
+
+export interface LiveTicketPricing {
+  _id: string;
+  expo: { _id: string; title: string; slug?: string } | string;
+  name: "General" | "Standard" | "VIP" | "Workshop";
+  price: number;
+  currency: string;
+  capacity: number;
+  soldCount: number;
+  perks: string[];
+  description?: string;
+  status: "active" | "draft" | "sold_out" | "archived";
+}
+
+export interface LivePricingSetting {
+  _id?: string;
+  expo: string;
+  currency: string;
+  taxRate: number;
+  taxLabel: string;
+  earlyBirdEnabled: boolean;
+  earlyBirdPercent: number;
+  earlyBirdDeadline?: string;
+  multiBoothEnabled: boolean;
+  multiBoothPercent: number;
+  multiBoothMinQty: number;
+  demoPaymentsEnabled: boolean;
+}
+
+export async function fetchAdminBoothPrices(params: Record<string, any> = {}): Promise<LiveBoothPricing[]> {
+  const query = new URLSearchParams(params).toString();
+  const res = await get<LiveBoothPricing[]>(`/pricing/booths${query ? `?${query}` : ""}`);
+  return res.data || [];
+}
+
+export async function upsertAdminBoothPrice(payload: {
+  expo: string;
+  category: "Small" | "Medium" | "Large" | "Island";
+  sqm: number;
+  basePrice: number;
+  discountPercent?: number;
+  currency?: string;
+  status?: "active" | "draft" | "archived";
+}): Promise<LiveBoothPricing> {
+  const res = await post<LiveBoothPricing>("/pricing/booths", payload);
+  if (!res.success) throw new Error(res.message || "Failed to save booth pricing");
+  return res.data;
+}
+
+export async function updateAdminBoothPrice(id: string, payload: Partial<LiveBoothPricing>): Promise<LiveBoothPricing> {
+  const res = await patch<LiveBoothPricing>(`/pricing/booths/${id}`, payload);
+  if (!res.success) throw new Error(res.message || "Failed to update booth pricing");
+  return res.data;
+}
+
+export async function deleteAdminBoothPrice(id: string): Promise<any> {
+  const res = await del<any>(`/pricing/booths/${id}`);
+  if (!res.success) throw new Error(res.message || "Failed to delete booth pricing");
+  return res.data;
+}
+
+export async function fetchAdminTicketTypes(params: Record<string, any> = {}): Promise<LiveTicketPricing[]> {
+  const query = new URLSearchParams(params).toString();
+  const res = await get<LiveTicketPricing[]>(`/pricing/tickets${query ? `?${query}` : ""}`);
+  return res.data || [];
+}
+
+export async function upsertAdminTicketType(payload: {
+  expo: string;
+  name: "General" | "Standard" | "VIP" | "Workshop";
+  price: number;
+  capacity: number;
+  perks?: string[];
+  description?: string;
+  status?: "active" | "draft" | "sold_out" | "archived";
+}): Promise<LiveTicketPricing> {
+  const res = await post<LiveTicketPricing>("/pricing/tickets", payload);
+  if (!res.success) throw new Error(res.message || "Failed to save ticket type");
+  return res.data;
+}
+
+export async function updateAdminTicketType(id: string, payload: Partial<LiveTicketPricing>): Promise<LiveTicketPricing> {
+  const res = await patch<LiveTicketPricing>(`/pricing/tickets/${id}`, payload);
+  if (!res.success) throw new Error(res.message || "Failed to update ticket type");
+  return res.data;
+}
+
+export async function deleteAdminTicketType(id: string): Promise<any> {
+  const res = await del<any>(`/pricing/tickets/${id}`);
+  if (!res.success) throw new Error(res.message || "Failed to delete ticket type");
+  return res.data;
+}
+
+export async function fetchAdminPricingSettings(expoId: string): Promise<LivePricingSetting> {
+  const res = await get<LivePricingSetting>(`/pricing/settings/${expoId}`);
+  if (!res.success) throw new Error(res.message || "Failed to fetch pricing settings");
+  return res.data;
+}
+
+export async function updateAdminPricingSettings(expoId: string, payload: Partial<LivePricingSetting>): Promise<LivePricingSetting> {
+  const res = await patch<LivePricingSetting>(`/pricing/settings/${expoId}`, payload);
+  if (!res.success) throw new Error(res.message || "Failed to update pricing settings");
+  return res.data;
+}
+
 

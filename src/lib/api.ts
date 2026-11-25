@@ -20,10 +20,20 @@ export const api: AxiosInstance = axios.create({
 });
 
 /* ------------------------- request interceptor ------------------------ */
+function readCookie(name: string): string | null {
+  if (typeof document === "undefined") return null;
+  const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
 api.interceptors.request.use((config) => {
-  // CSRF-style protection for mutating requests when cookies are used
+  // Double-submit CSRF protection for mutating requests when cookies are used
   if (["post", "put", "patch", "delete"].includes(config.method ?? "")) {
     config.headers["X-Requested-With"] = "XMLHttpRequest";
+    const csrfToken = readCookie("es_csrf");
+    if (csrfToken) {
+      config.headers["X-CSRF-Token"] = csrfToken;
+    }
   }
 
   // Attach token from localStorage if available (ensures reliable auth across ports & proxies)

@@ -10,6 +10,7 @@ import mongoSanitize from "express-mongo-sanitize";
 import config, { assertConfig } from "./config/index.js";
 import { corsOptions } from "./config/cors.js";
 import { apiLimiter } from "./middleware/rateLimit.js";
+import { csrfProtection } from "./middleware/csrfMiddleware.js";
 import { notFound, errorHandler } from "./middleware/errorMiddleware.js";
 import routes from "./routes/index.js";
 
@@ -83,7 +84,7 @@ export function createApp() {
   );
 
   /* ----------------------------- routes ---------------------------- */
-  app.use("/api/v1", apiLimiter, routes);
+  app.use("/api/v1", apiLimiter, csrfProtection, routes);
 
   /* --------------------------- 404 + errors ------------------------ */
   app.use(notFound);

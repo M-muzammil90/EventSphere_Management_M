@@ -25,6 +25,7 @@ import AdminAnalytics from "@/pages/admin/AdminAnalytics";
 import AdminMessages from "@/pages/admin/AdminMessages";
 import AdminSettings from "@/pages/admin/AdminSettings";
 import AdminPayments from "@/pages/admin/AdminPayments";
+import AdminPricing from "@/pages/admin/AdminPricing";
 import SpeakersPage from "@/pages/SpeakersPage";
 import FaqPage from "@/pages/FaqPage";
 import LegalPage from "@/pages/LegalPage";
@@ -108,6 +109,7 @@ export default function App() {
             <Route path="feedback" element={<AdminFeedback />} />
             <Route path="schedule" element={<AdminSchedule />} />
             <Route path="floor-plan" element={<AdminFloorPlan />} />
+            <Route path="pricing" element={<AdminPricing />} />
             <Route path="payments" element={<AdminPayments />} />
             <Route path="analytics" element={<AdminAnalytics />} />
             <Route path="messages" element={<AdminMessages />} />

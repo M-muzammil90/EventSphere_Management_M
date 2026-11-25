@@ -10,7 +10,7 @@ import {
   MONTHLY_REVENUE,
   SESSION_POPULARITY,
 } from "@/lib/data";
-import { Badge, Button, Card, CardHeader, Progress, Reveal, Tabs } from "@/components/ui";
+import { Badge, Button, Card, CardHeader, Reveal, Tabs } from "@/components/ui";
 import { StatCard, ExhibitorLogo } from "@/components/shared";
 import { ApiStatus } from "@/components/ApiStatus";
 import { AreaChart, BarChart, Donut, Funnel, Gauge, Heatmap, LiveChart, Sparkline } from "@/components/charts";
@@ -54,7 +54,7 @@ export default function AdminOverview() {
   const [applications, setApplications] = useState<any[]>([]);
   const [payments, setPayments] = useState<any[]>([]);
   const [attendees, setAttendees] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [_loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const loadData = async (silent = false) => {
@@ -169,7 +169,7 @@ export default function AdminOverview() {
 
   const handleReviewApp = async (appId: string, action: "approved" | "rejected", name: string) => {
     try {
-      await reviewLiveApplication(appId, action);
+      await reviewLiveApplication(appId, { status: action });
       toast({
         title: `Application ${action === "approved" ? "Approved" : "Rejected"} ✓`,
         body: `${name} has been updated in MongoDB.`,
@@ -466,7 +466,7 @@ export default function AdminOverview() {
                 const companyName = app.company?.name || app.companyName || "Exhibitor";
                 return (
                   <div key={app._id} className="flex flex-wrap items-center gap-3 px-5 py-4">
-                    <ExhibitorLogo name={companyName} />
+                    <ExhibitorLogo name={companyName} bg="#6854d9" />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <p className="truncate text-[13.5px] font-bold text-slate-900">{companyName}</p>

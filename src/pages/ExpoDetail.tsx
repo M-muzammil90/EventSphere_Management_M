@@ -1,43 +1,83 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { EXPOS, EXHIBITORS, SESSIONS, TESTIMONIALS, type Expo, type Exhibitor } from "@/lib/data";
-import { Badge, Button, Card, CardHeader, EmptyState, Modal, Reveal, Tabs, Field, Textarea } from "@/components/ui";
+import { Badge, Button, EmptyState, Modal, Field, Textarea } from "@/components/ui";
 import { FloorPlan, ExhibitorLogo, SessionCard } from "@/components/shared";
 import { Shell } from "@/components/SiteLayout";
-import { AreaChart, Donut, Gauge, Sparkline } from "@/components/charts";
+import { AreaChart, Donut } from "@/components/charts";
 import { fmt, money, useStore } from "@/lib/store";
 import { fetchLiveExpos, createLiveOrder, fetchExpoApprovedExhibitors } from "@/lib/liveApi";
 import { cn } from "@/utils/cn";
 import {
   ArrowLeft,
+  ArrowUpRight,
   Building2,
-  CalendarDays,
-  CheckCircle2,
-  Clock,
+  Calendar,
+  Check,
   Download,
-  Globe2,
   MapPin,
   MessageSquare,
+  Minus,
+  Plus,
   Printer,
+  Search,
   Share2,
-  Sparkles,
   Star,
   Ticket,
-  TrendingUp,
   Users,
 } from "lucide-react";
+
+const FALLBACK_COVER =
+  "https://images.pexels.com/photos/38041486/pexels-photo-38041486.jpeg?auto=compress&cs=tinysrgb&fit=crop&h=627&w=1200";
+
+const focusRing =
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600 focus-visible:ring-offset-2";
+
+const inputCls =
+  "h-11 w-full rounded-lg border border-slate-200 bg-white px-3.5 text-[14px] text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10";
+
+const INCLUDED = [
+  { title: "Full Hall & Zone Access", desc: "Entry to all exhibition halls, demo stages, and innovation pavilions." },
+  { title: "Interactive Floor Navigation", desc: "Live booth directory with instant exhibitor filtering and bookmarking." },
+  { title: "Keynote & Mainstage Seating", desc: "Access to all mainstage talks (first-come, first-served seating)." },
+  { title: "Fast-Lane QR e-Badge", desc: "Contactless check-in and instant digital badge sharing with exhibitors." },
+  { title: "On-Demand Session Archive", desc: "Full HD recordings and slide decks available 48 hours post-event." },
+  { title: "Curated Networking Lounge", desc: "Dedicated quiet zones, coffee bars, and 1:1 matchmaking tables." },
+];
+
+function passesFor(expo: Expo) {
+  return [
+    { n: "Day Pass", p: expo.price, note: "Single-day floor & keynote access" },
+    { n: "Full Pass", p: 349, note: "All days + recordings & workshops", best: true },
+    { n: "VIP Executive", p: 850, note: "Front-row seating + speaker lounge" },
+  ];
+}
+
+function dateRange(expo: Expo) {
+  const a = new Date(expo.startDate);
+  const b = new Date(expo.endDate);
+  if (isNaN(+a) || isNaN(+b)) return `${expo.startDate} – ${expo.endDate}`;
+  return `${a.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${b.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  })}`;
+}
 
 export default function ExpoDetail() {
   const { slug } = useParams();
   const nav = useNavigate();
   const { user, toast } = useStore();
+
   const [liveExpos, setLiveExpos] = useState<Expo[]>(EXPOS);
+  const [liveExhibitors, setLiveExhibitors] = useState<Exhibitor[]>([]);
   const [tab, setTab] = useState("overview");
   const [reg, setReg] = useState(false);
-  const [selectedTicket, setSelectedTicket] = useState("Day Pass");
+  const [selectedTicket, setSelectedTicket] = useState("Full Pass");
   const [ticketQty, setTicketQty] = useState(1);
   const [bookingPass, setBookingPass] = useState(false);
   const [contact, setContact] = useState<string | null>(null);
+  const [contactMsg, setContactMsg] = useState("");
   const [q, setQ] = useState("");
 
   useEffect(() => {
@@ -47,23 +87,6 @@ export default function ExpoDetail() {
   }, []);
 
   const expo = liveExpos.find((e) => e.slug === slug || e.id === slug) ?? liveExpos[0];
-
-  if (!expo)
-    return (
-      <Shell>
-        <div className="mx-auto max-w-3xl px-4 py-24">
-          <EmptyState
-            icon={<MapPin className="size-6" />}
-            title="Expo not found"
-            body="The expo you're looking for may have been removed or the link is incorrect."
-            action={<Button onClick={() => nav("/expos")}>Browse all expos</Button>}
-          />
-        </div>
-      </Shell>
-    );
-
-  const sold = Math.round((expo.boothsSold / expo.boothsTotal) * 100);
-  const [liveExhibitors, setLiveExhibitors] = useState<Exhibitor[]>([]);
 
   useEffect(() => {
     if (expo?.id) {
@@ -78,578 +101,874 @@ export default function ExpoDetail() {
     return EXHIBITORS.filter((e) => e.status === "Approved");
   }, [liveExhibitors]);
 
-  const filtered = exhibitors.filter((e) => !q || `${e.company} ${e.category} ${e.products.join(" ")}`.toLowerCase().includes(q.toLowerCase()));
-  const days = Array.from(new Set(SESSIONS.map((s) => s.day)));
+  const filtered = useMemo(
+    () =>
+      exhibitors.filter(
+        (e) =>
+          !q ||
+          `${e.company} ${e.category} ${e.products.join(" ")}`.toLowerCase().includes(q.toLowerCase())
+      ),
+    [exhibitors, q]
+  );
+
+  const days = useMemo(() => Array.from(new Set(SESSIONS.map((s) => s.day))), []);
+
+  if (!expo) {
+    return (
+      <Shell>
+        <div className="mx-auto max-w-2xl px-4 py-28">
+          <EmptyState
+            icon={<MapPin className="size-6" />}
+            title="Expo not found"
+            body="This event may have concluded or the link is no longer active."
+            action={<Button onClick={() => nav("/expos")}>Explore upcoming expos</Button>}
+          />
+        </div>
+      </Shell>
+    );
+  }
+
+  const sold = expo.boothsTotal ? Math.round((expo.boothsSold / expo.boothsTotal) * 100) : 0;
+  const available = Math.max(0, expo.boothsTotal - expo.boothsSold);
+  const passes = passesFor(expo);
+  const chosen = passes.find((p) => p.n === selectedTicket) ?? passes[0];
+  const durationDays = Math.max(1, Math.round((+new Date(expo.endDate) - +new Date(expo.startDate)) / 86400000) + 1);
+
+  async function share() {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      toast({ title: "Link copied", body: "Event URL copied to your clipboard.", tone: "success" });
+    } catch {
+      toast({ title: "Unable to copy", body: "Please copy the URL from your browser bar.", tone: "warn" });
+    }
+  }
+
+  async function checkout() {
+    const targetExpoId = (expo as any)._id || (expo.id && expo.id.length === 24 ? expo.id : null) || liveExpos.find((e) => e.slug === expo.slug || e.title === expo.title)?.id || expo.id;
+    if (!user) {
+      localStorage.setItem(
+        "eventsphere_pending_booking",
+        JSON.stringify({ expoId: targetExpoId, expoSlug: expo.slug, ticketType: selectedTicket, quantity: ticketQty })
+      );
+      toast({ title: "Sign in required", body: "Sign in to reserve your pass.", tone: "info" });
+      nav(`/login?redirect=/expos/${expo.slug}&role=attendee`);
+      return;
+    }
+
+    setBookingPass(true);
+    try {
+      await createLiveOrder({
+        orderType: "ticket_registration",
+        expoId: targetExpoId,
+        ticketType: selectedTicket,
+        quantity: ticketQty,
+      });
+      setReg(false);
+      toast({ title: "You're registered", body: `Pass confirmed for ${expo.title}.`, tone: "success" });
+      nav("/attendee");
+    } catch (err: any) {
+      toast({
+        title: "Registration failed",
+        body: err?.message || "Something went wrong while issuing your pass.",
+        tone: "danger",
+      });
+    } finally {
+      setBookingPass(false);
+    }
+  }
+
+  const TABS = [
+    { id: "overview", label: "Overview" },
+    { id: "exhibitors", label: "Directory", count: exhibitors.length },
+    { id: "schedule", label: "Programme", count: SESSIONS.length },
+    { id: "floorplan", label: "Floor Plan" },
+    { id: "insights", label: "Metrics" },
+  ];
 
   return (
     <Shell>
-      {/* HERO */}
-      <section className="relative isolate overflow-hidden bg-ink-950 pb-14 pt-10">
-        <img
-          src={expo.cover}
-          alt=""
-          className="absolute inset-0 -z-10 size-full object-cover opacity-40"
-          onError={(ev) => {
-            (ev.target as HTMLImageElement).src =
-              "https://images.pexels.com/photos/38041486/pexels-photo-38041486.jpeg?auto=compress&cs=tinysrgb&fit=crop&h=627&w=1200";
-          }}
-        />
-        <div className="absolute inset-0 -z-10 bg-gradient-to-t from-ink-950 via-ink-950/85 to-ink-950/60" />
-        <div className="pointer-events-none absolute inset-0 -z-10 grid-noise-dark opacity-50" />
+      {/* ============================== ARCHITECTURAL HEADER ============================== */}
+      <header className="border-b border-slate-200/80 bg-white pt-6 pb-10">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          {/* Top Breadcrumb & Utility Bar */}
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <Link
+              to="/expos"
+              className={cn(
+                "group inline-flex items-center gap-2 text-[13.5px] font-medium text-slate-500 transition hover:text-slate-950",
+                focusRing
+              )}
+            >
+              <ArrowLeft className="size-4 transition-transform group-hover:-translate-x-0.5" />
+              Back to directory
+            </Link>
 
-        <div className="relative mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <Link to="/expos" className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-white/60 transition hover:text-white">
-            <ArrowLeft className="size-3.5" /> All expos
-          </Link>
-
-          <div className="mt-6 grid gap-10 lg:grid-cols-[1.5fr_1fr]">
-            <div>
-              <div className="flex flex-wrap gap-2">
-                <Badge tone="dark">{expo.category}</Badge>
-                {expo.status === "Live" ? (
-                  <Badge tone="danger" className="bg-rose-500 text-white ring-rose-400">
-                    <span className="size-1.5 animate-pulse rounded-full bg-white" /> Happening now
-                  </Badge>
-                ) : (
-                  <Badge tone="brand" className="bg-white/10 text-brand-200 ring-white/15">{expo.status}</Badge>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={share}
+                className={cn(
+                  "inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-[13px] font-medium text-slate-700 transition hover:bg-slate-50",
+                  focusRing
                 )}
-                <Badge tone="warn" className="bg-white/10 text-amber-200 ring-white/15">
-                  <Star className="size-3 fill-amber-300" /> {expo.rating} rated
-                </Badge>
+              >
+                <Share2 className="size-3.5 text-slate-500" />
+                Share
+              </button>
+              <button
+                type="button"
+                onClick={() => toast({ title: "Downloading brochure…", tone: "info" })}
+                className={cn(
+                  "inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-[13px] font-medium text-slate-700 transition hover:bg-slate-50",
+                  focusRing
+                )}
+              >
+                <Download className="size-3.5 text-slate-500" />
+                Brochure PDF
+              </button>
+            </div>
+          </div>
+
+          {/* Editorial Title Block */}
+          <div className="mt-7 grid gap-8 lg:grid-cols-12 lg:items-end">
+            <div className="lg:col-span-8">
+              <div className="flex flex-wrap items-center gap-2.5 text-[12.5px] font-semibold uppercase tracking-wider">
+                <span className="text-brand-600">{expo.category}</span>
+                <span className="text-slate-300">/</span>
+                {expo.status === "Live" ? (
+                  <span className="inline-flex items-center gap-1.5 text-rose-600">
+                    <span className="size-1.5 animate-pulse rounded-full bg-rose-600" />
+                    Live Now
+                  </span>
+                ) : (
+                  <span className="text-slate-600">{expo.status}</span>
+                )}
+                <span className="text-slate-300">/</span>
+                <span className="inline-flex items-center gap-1 text-slate-700">
+                  <Star className="size-3.5 fill-amber-400 text-amber-400" />
+                  {expo.rating} <span className="font-normal text-slate-400">(420+ reviews)</span>
+                </span>
               </div>
 
-              <h1 className="mt-5 font-display text-[32px] font-extrabold leading-[1.08] tracking-[-0.03em] text-white sm:text-[44px]">
+              <h1 className="mt-3 font-display text-[34px] font-extrabold leading-[1.06] tracking-[-0.03em] text-slate-950 sm:text-[48px]">
                 {expo.title}
               </h1>
-              <p className="mt-2 text-[15px] font-semibold text-brand-300">Theme · {expo.theme}</p>
-              <p className="mt-5 max-w-2xl text-[15px] leading-relaxed text-slate-300/90">{expo.description}</p>
-
-              <div className="mt-7 grid gap-3 sm:grid-cols-2">
-                {[
-                  { i: CalendarDays, l: "Dates", v: `${new Date(expo.startDate).toLocaleDateString("en-US", { month: "long", day: "numeric" })} – ${new Date(expo.endDate).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}` },
-                  { i: MapPin, l: "Venue", v: expo.venue },
-                  { i: Globe2, l: "Industry", v: expo.industry },
-                  { i: Users, l: "Expected", v: `${fmt(expo.attendees)} attendees · ${expo.exhibitors} exhibitors` },
-                ].map((m) => (
-                  <div key={m.l} className="flex items-start gap-3 rounded-2xl border border-white/10 bg-white/[0.05] p-3.5 backdrop-blur">
-                    <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-white/10 text-brand-200">
-                      <m.i className="size-4" />
-                    </span>
-                    <div className="min-w-0">
-                      <p className="text-[10.5px] font-bold uppercase tracking-wider text-white/40">{m.l}</p>
-                      <p className="mt-0.5 text-[13px] font-semibold leading-snug text-white">{m.v}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="mt-7 flex flex-wrap gap-2.5">
-                <Button size="lg" icon={<Ticket className="size-4.5" />} onClick={() => setReg(true)}>
-                  Register — ${expo.price}
-                </Button>
-                <Link to="/portal">
-                  <Button size="lg" variant="secondary" icon={<Building2 className="size-4.5" />}>
-                    Apply as Exhibitor
-                  </Button>
-                </Link>
-                <Button size="lg" variant="outline" icon={<Share2 className="size-4" />} onClick={() => toast({ title: "Link copied to clipboard", tone: "success" })}>
-                  Share
-                </Button>
-                <Button size="lg" variant="outline" icon={<Download className="size-4.5" />} onClick={() => toast({ title: "Programme PDF downloading…", tone: "info" })}>
-                  Programme
-                </Button>
-              </div>
+              <p className="mt-3 max-w-2xl text-[17px] leading-relaxed text-slate-600">
+                {expo.theme}
+              </p>
             </div>
 
-            {/* live stats card */}
-            <Reveal delay={120}>
-              <div className="overflow-hidden rounded-3xl border border-white/12 bg-white/[0.055] backdrop-blur-2xl">
-                <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
-                  <p className="text-[12px] font-bold uppercase tracking-wider text-white/50">Live expo metrics</p>
-                  <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-400/15 px-2 py-1 text-[10px] font-bold text-emerald-300">
-                    <span className="size-1.5 animate-pulse rounded-full bg-emerald-400" /> REAL-TIME
-                  </span>
-                </div>
-                <div className="space-y-4 p-5">
-                  <div className="grid grid-cols-2 gap-3">
-                    {[
-                      { l: "On floor", v: "9,310", s: [12, 18, 15, 22, 19, 27, 31], c: "#38bdf8", d: "+18.4%" },
-                      { l: "Sessions live", v: "6 / 44", s: [2, 3, 2, 4, 3, 5, 6], c: "#8b72ee", d: "+2 today" },
-                    ].map((k) => (
-                      <div key={k.l} className="rounded-2xl border border-white/10 bg-white/[0.04] p-3.5">
-                        <p className="text-[10.5px] font-bold uppercase tracking-wider text-white/45">{k.l}</p>
-                        <div className="mt-1.5 flex items-end justify-between gap-2">
-                          <p className="font-display text-[20px] font-bold leading-none text-white">{k.v}</p>
-                          <Sparkline values={k.s} color={k.c} width={54} height={24} />
-                        </div>
-                        <p className="mt-2 inline-flex items-center gap-1 text-[10px] font-bold text-emerald-300">
-                          <TrendingUp className="size-3" /> {k.d}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-                    <div className="mb-2.5 flex items-center justify-between">
-                      <p className="text-[10.5px] font-bold uppercase tracking-wider text-white/45">Booth inventory</p>
-                      <p className="text-[11.5px] font-bold text-white">{sold}% sold</p>
-                    </div>
-                    <div className="h-2 overflow-hidden rounded-full bg-white/10">
-                      <div className="h-full rounded-full bg-gradient-to-r from-brand-500 to-aqua-400" style={{ width: `${sold}%` }} />
-                    </div>
-                    <div className="mt-3 grid grid-cols-2 gap-3 text-center">
-                      <div>
-                        <p className="font-display text-[16px] font-bold text-white">{expo.boothsSold}</p>
-                        <p className="text-[10px] uppercase tracking-wide text-white/40">Sold</p>
-                      </div>
-                      <div>
-                        <p className="font-display text-[16px] font-bold text-white">{expo.boothsTotal - expo.boothsSold}</p>
-                        <p className="text-[10px] uppercase tracking-wide text-white/40">Available</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <Link to="/floor-plan">
-                    <Button full variant="outline">Open interactive floor plan</Button>
-                  </Link>
-                </div>
+            {/* Key Metadata Strip */}
+            <div className="flex flex-col gap-2.5 border-l-2 border-slate-900 pl-4 lg:col-span-4">
+              <div className="flex items-center gap-2.5 text-[14px] font-medium text-slate-900">
+                <Calendar className="size-4 shrink-0 text-slate-400" />
+                <span>{dateRange(expo)}</span>
               </div>
-            </Reveal>
+              <div className="flex items-center gap-2.5 text-[14px] font-medium text-slate-900">
+                <MapPin className="size-4 shrink-0 text-slate-400" />
+                <span>{expo.venue}</span>
+              </div>
+              <div className="flex items-center gap-2.5 text-[14px] text-slate-600">
+                <Users className="size-4 shrink-0 text-slate-400" />
+                <span className="tabular-nums">
+                  {fmt(expo.attendees)} attendees · {expo.exhibitors} exhibitors
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Crisp Framed Cover Image */}
+          <div className="relative mt-8 overflow-hidden rounded-2xl border border-slate-200/80 bg-slate-100">
+            <img
+              src={expo.cover}
+              alt={expo.title}
+              className="aspect-[21/8] min-h-[240px] w-full object-cover"
+              onError={(ev) => {
+                ev.currentTarget.onerror = null;
+                ev.currentTarget.src = FALLBACK_COVER;
+              }}
+            />
+            <div className="absolute bottom-3 right-3 rounded-lg bg-slate-950/75 px-3 py-1.5 text-[12px] font-medium text-white backdrop-blur-md">
+              Edition #{expo.id} · Official Venue Partner
+            </div>
           </div>
         </div>
-      </section>
+      </header>
 
-      {/* TABS */}
-      <section className="sticky top-16.5 z-30 border-b border-slate-200 bg-white/92 backdrop-blur-xl">
-        <div className="mx-auto max-w-7xl px-4 py-3 sm:px-6 lg:px-8">
-          <Tabs
-            active={tab}
-            onChange={setTab}
-            tabs={[
-              { id: "overview", label: "Overview" },
-              { id: "exhibitors", label: "Exhibitors", count: exhibitors.length },
-              { id: "schedule", label: "Schedule", count: SESSIONS.length },
-              { id: "floorplan", label: "Floor Plan" },
-              { id: "insights", label: "Insights" },
-            ]}
-          />
+      {/* ============================== STICKY NAVIGATION BAR ============================== */}
+      <nav
+        aria-label="Expo sections"
+        className="sticky top-16 z-30 border-b border-slate-200/90 bg-white/95 backdrop-blur-md"
+      >
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
+          <div role="tablist" className="-mb-px flex gap-6 overflow-x-auto">
+            {TABS.map((t) => {
+              const active = tab === t.id;
+              return (
+                <button
+                  key={t.id}
+                  role="tab"
+                  type="button"
+                  aria-selected={active}
+                  onClick={() => setTab(t.id)}
+                  className={cn(
+                    "flex h-13 shrink-0 items-center gap-2 border-b-2 text-[14px] font-semibold transition-colors",
+                    focusRing,
+                    active
+                      ? "border-slate-950 text-slate-950"
+                      : "border-transparent text-slate-500 hover:text-slate-900"
+                  )}
+                >
+                  {t.label}
+                  {t.count !== undefined && (
+                    <span
+                      className={cn(
+                        "rounded-md px-1.5 py-0.5 text-[11.5px] font-semibold tabular-nums",
+                        active ? "bg-slate-950 text-white" : "bg-slate-100 text-slate-600"
+                      )}
+                    >
+                      {t.count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="hidden items-center gap-3 md:flex">
+            <span className="text-[13px] text-slate-500">
+              Passes from <strong className="font-semibold text-slate-950">${expo.price}</strong>
+            </span>
+            <Button size="sm" onClick={() => setReg(true)}>
+              Reserve Pass
+            </Button>
+          </div>
         </div>
-      </section>
+      </nav>
 
-      <section className="bg-slate-50/60 py-10 sm:py-14">
+      {/* ============================== MAIN CONTENT + STICKY TICKET RAIL ============================== */}
+      <main className="bg-[#FAFAFA] py-10">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          {/* OVERVIEW */}
-          {tab === "overview" && (
-            <div className="grid gap-6 lg:grid-cols-3">
-              <div className="space-y-6 lg:col-span-2">
-                <Card>
-                  <CardHeader title="About this expo" subtitle={`Edition #${expo.id}`} />
-                  <div className="space-y-4 p-5 text-[14px] leading-relaxed text-slate-600">
-                    <p>{expo.description}</p>
-                    <p>
-                      Across four days, {expo.title} brings together {expo.exhibitors} exhibitors and {fmt(expo.attendees)}{" "}
-                      attendees in {expo.venue}. The programme spans {expo.sessions} sessions — keynotes, hands-on labs,
-                      panels and closed roundtables — organised into six curated tracks.
-                    </p>
-                    <p>
-                      Every badge, booth and session is managed live on EventSphere. Attendees receive real-time schedule
-                      updates; exhibitors track booth traffic and capture leads directly from the floor plan.
-                    </p>
-                  </div>
-                </Card>
-
-                <Card>
-                  <CardHeader title="What's included" subtitle="Every ticket covers" />
-                  <div className="grid gap-3 p-5 sm:grid-cols-2">
-                    {[
-                      "Access to all halls & zones",
-                      "Digital floor plan with exhibitor search",
-                      "Keynote seating on a first-come basis",
-                      "e-Badge with QR fast-lane check-in",
-                      "Session bookmarks with reminders",
-                      "Post-event recordings (Full Pass)",
-                      "Networking lounge access",
-                      "Exportable personal agenda",
-                    ].map((x) => (
-                      <div key={x} className="flex items-start gap-2.5 rounded-xl bg-slate-50 px-3.5 py-3">
-                        <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-500" />
-                        <span className="text-[13px] font-medium text-slate-700">{x}</span>
-                      </div>
-                    ))}
-                  </div>
-                </Card>
-
-                <Card>
-                  <CardHeader title="Featured exhibitors" right={<Badge tone="brand">{exhibitors.length} confirmed</Badge>} />
-                  <div className="grid gap-3 p-5 sm:grid-cols-2">
-                    {exhibitors.slice(0, 6).map((x) => (
-                      <div key={x.id} className="flex items-center gap-3 rounded-xl border border-slate-200 p-3 transition hover:border-brand-300 hover:bg-brand-50/30">
-                        <ExhibitorLogo name={x.company} bg={x.logoBg} />
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-[13px] font-bold text-slate-900">{x.company}</p>
-                          <p className="truncate text-[11.5px] text-slate-500">{x.category}</p>
-                        </div>
-                        <Badge tone="neutral" className="shrink-0">{x.booth}</Badge>
-                      </div>
-                    ))}
-                  </div>
-                </Card>
-              </div>
-
-              <div className="space-y-6">
-                <Card className="p-5">
-                  <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Quick facts</p>
-                  <div className="mt-4 space-y-3">
-                    {[
-                      ["Duration", `${Math.round((+new Date(expo.endDate) - +new Date(expo.startDate)) / 86400000) + 1} days`],
-                      ["Halls", "3 halls · 4 zones"],
-                      ["Booths", `${expo.boothsTotal} total`],
-                      ["Sessions", `${expo.sessions} across 6 tracks`],
-                      ["Languages", "EN · DE · AR"],
-                      ["Ticket from", `$${expo.price} / day`],
-                    ].map(([l, v]) => (
-                      <div key={l} className="flex items-baseline justify-between gap-3 border-b border-dashed border-slate-100 pb-2.5 last:border-0">
-                        <span className="text-[12.5px] text-slate-500">{l}</span>
-                        <span className="text-[13px] font-bold text-slate-900">{v}</span>
-                      </div>
-                    ))}
-                  </div>
-                </Card>
-
-                <Card className="p-5">
-                  <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Organizer</p>
-                  <div className="mt-3.5 flex items-center gap-3">
-                    <img src={TESTIMONIALS[0].avatar} alt="" className="size-11 rounded-xl object-cover" />
-                    <div>
-                      <p className="text-[13.5px] font-bold text-slate-900">EventSphere Management</p>
-                      <p className="text-[11.5px] text-slate-500">480 expos delivered since 2014</p>
+          <div className="grid items-start gap-10 lg:grid-cols-[minmax(0,1fr)_360px]">
+            {/* LEFT COLUMN: TAB CONTENT */}
+            <div role="tabpanel" className="min-w-0">
+              {/* ---------- OVERVIEW ---------- */}
+              {tab === "overview" && (
+                <div className="space-y-10">
+                  {/* Narrative */}
+                  <section className="rounded-2xl border border-slate-200/80 bg-white p-6 sm:p-8">
+                    <h2 className="font-display text-[20px] font-bold tracking-tight text-slate-950">
+                      About the exhibition
+                    </h2>
+                    <div className="mt-4 space-y-4 text-[15.5px] leading-[1.7] text-slate-600">
+                      <p>{expo.description}</p>
+                      <p>
+                        Spanning {durationDays} days at {expo.venue}, {expo.title} convenes{" "}
+                        {expo.exhibitors} vetted industry leaders and {fmt(expo.attendees)} delegates.
+                        The agenda is structured around {expo.sessions} technical keynotes, live product
+                        teardowns, and closed-door buyer roundtables.
+                      </p>
                     </div>
-                  </div>
-                  <Button variant="secondary" full size="sm" className="mt-4" icon={<MessageSquare className="size-3.5" />} onClick={() => setContact("EventSphere Management")}>
-                    Contact organizer
-                  </Button>
-                </Card>
 
-                <Card className="overflow-hidden">
-                  <div className="bg-gradient-to-br from-brand-600 to-brand-800 p-5 text-white">
-                    <Sparkles className="size-5" />
-                    <p className="mt-3 font-display text-[16px] font-bold">Exhibit at this expo</p>
-                    <p className="mt-1.5 text-[12.5px] leading-relaxed text-white/75">
-                      {expo.boothsTotal - expo.boothsSold} booths still available from {money(2600)}.
-                    </p>
-                    <Link to="/register?role=exhibitor" className="mt-4 block">
-                      <Button full variant="secondary" size="sm">Become an exhibitor</Button>
-                    </Link>
-                  </div>
-                </Card>
-              </div>
-            </div>
-          )}
+                    {/* Clean Key Metrics Row */}
+                    <dl className="mt-8 grid grid-cols-2 gap-6 border-t border-slate-100 pt-6 sm:grid-cols-4">
+                      {[
+                        { label: "Duration", val: `${durationDays} Days` },
+                        { label: "Exhibition Halls", val: "3 Halls · 4 Zones" },
+                        { label: "Programme", val: `${expo.sessions} Sessions` },
+                        { label: "Languages", val: "EN · DE · AR" },
+                      ].map((item) => (
+                        <div key={item.label}>
+                          <dt className="text-[12.5px] font-medium text-slate-400">{item.label}</dt>
+                          <dd className="mt-1 font-display text-[16px] font-bold text-slate-950">
+                            {item.val}
+                          </dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </section>
 
-          {/* EXHIBITORS */}
-          {tab === "exhibitors" && (
-            <div>
-              <div className="mb-5 flex flex-wrap items-center gap-3">
-                <div className="relative min-w-0 flex-1">
-                  <input
-                    value={q}
-                    onChange={(e) => setQ(e.target.value)}
-                    placeholder="Search exhibitors by company, category or product…"
-                    className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-4 text-[14px] outline-none transition focus:border-brand-400 focus:ring-4 focus:ring-brand-500/12"
-                  />
-                  <Building2 className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
-                </div>
-                <Badge tone="neutral" className="h-8 px-3">{filtered.length} results</Badge>
-              </div>
+                  {/* What's Included - Hairline Grid */}
+                  <section className="rounded-2xl border border-slate-200/80 bg-white p-6 sm:p-8">
+                    <div className="flex items-baseline justify-between">
+                      <h2 className="font-display text-[20px] font-bold tracking-tight text-slate-950">
+                        Included with admission
+                      </h2>
+                      <span className="text-[13px] text-slate-500">All pass tiers</span>
+                    </div>
 
-              {filtered.length === 0 ? (
-                <Card>
-                  <EmptyState icon={<Building2 className="size-6" />} title="No exhibitors found" body="Try a different keyword or clear your search." />
-                </Card>
-              ) : (
-                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                  {filtered.map((x) => (
-                    <Card key={x.id} hover className="p-5">
-                      <div className="flex items-start gap-3.5">
-                        <ExhibitorLogo name={x.company} bg={x.logoBg} size={48} />
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate font-display text-[15px] font-bold text-slate-900">{x.company}</p>
-                          <p className="mt-0.5 text-[11.5px] text-slate-500">{x.category}</p>
-                          <div className="mt-2 flex items-center gap-1.5">
-                            <Star className="size-3.5 fill-amber-400 text-amber-400" />
-                            <span className="text-[11.5px] font-bold text-slate-700">{x.rating}</span>
-                            <span className="text-[11px] text-slate-400">· {x.country}</span>
+                    <div className="mt-6 grid gap-x-8 gap-y-6 sm:grid-cols-2">
+                      {INCLUDED.map((item) => (
+                        <div key={item.title} className="flex gap-3.5">
+                          <div className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-slate-950 text-white">
+                            <Check className="size-3" strokeWidth={2.5} />
+                          </div>
+                          <div>
+                            <h3 className="text-[14.5px] font-semibold text-slate-900">
+                              {item.title}
+                            </h3>
+                            <p className="mt-1 text-[13.5px] leading-relaxed text-slate-500">
+                              {item.desc}
+                            </p>
                           </div>
                         </div>
-                        <Badge tone={x.badgeTier === "Platinum" ? "purple" : x.badgeTier === "Gold" ? "warn" : "neutral"}>{x.badgeTier}</Badge>
+                      ))}
+                    </div>
+                  </section>
+
+                  {/* Featured Exhibitors Preview */}
+                  <section className="rounded-2xl border border-slate-200/80 bg-white p-6 sm:p-8">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h2 className="font-display text-[20px] font-bold tracking-tight text-slate-950">
+                          Confirmed exhibitors
+                        </h2>
+                        <p className="mt-0.5 text-[13.5px] text-slate-500">
+                          Selected organizations showcasing on the main floor
+                        </p>
                       </div>
-                      <p className="mt-3.5 line-clamp-2 text-[12.5px] leading-relaxed text-slate-600">{x.description}</p>
-                      <div className="mt-3 flex flex-wrap gap-1.5">
-                        {x.products.map((p: any) => (
-                          <span key={p} className="rounded-md bg-slate-100 px-2 py-0.5 text-[10.5px] font-semibold text-slate-600">{p}</span>
-                        ))}
+                      <button
+                        type="button"
+                        onClick={() => setTab("exhibitors")}
+                        className={cn(
+                          "inline-flex items-center gap-1 text-[13.5px] font-semibold text-slate-950 hover:text-brand-600",
+                          focusRing
+                        )}
+                      >
+                        Full directory ({exhibitors.length})
+                        <ArrowUpRight className="size-4" />
+                      </button>
+                    </div>
+
+                    <div className="mt-5 divide-y divide-slate-100 border-t border-slate-100">
+                      {exhibitors.slice(0, 5).map((x) => (
+                        <div
+                          key={x.id}
+                          className="flex items-center justify-between gap-4 py-3.5 transition-colors hover:bg-slate-50/70"
+                        >
+                          <div className="flex min-w-0 items-center gap-3.5">
+                            <ExhibitorLogo name={x.company} bg={x.logoBg} size={40} />
+                            <div className="min-w-0">
+                              <p className="truncate text-[14.5px] font-semibold text-slate-900">
+                                {x.company}
+                              </p>
+                              <p className="truncate text-[13px] text-slate-500">{x.category}</p>
+                            </div>
+                          </div>
+                          <div className="flex shrink-0 items-center gap-3">
+                            <span className="hidden text-[12.5px] text-slate-400 sm:inline">
+                              {x.hall}
+                            </span>
+                            <span className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 font-mono text-[12px] font-medium text-slate-700">
+                              {x.booth}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                </div>
+              )}
+
+              {/* ---------- DIRECTORY (EXHIBITORS) ---------- */}
+              {tab === "exhibitors" && (
+                <div className="space-y-6">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="relative flex-1 sm:max-w-md">
+                      <Search className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+                      <input
+                        value={q}
+                        onChange={(e) => setQ(e.target.value)}
+                        placeholder="Filter by company, sector, or product…"
+                        className={cn(inputCls, "pl-10")}
+                      />
+                    </div>
+                    <p className="text-[13.5px] font-medium text-slate-500 tabular-nums">
+                      Showing {filtered.length} of {exhibitors.length} exhibitors
+                    </p>
+                  </div>
+
+                  {filtered.length === 0 ? (
+                    <div className="rounded-2xl border border-slate-200/80 bg-white p-12">
+                      <EmptyState
+                        icon={<Building2 className="size-6" />}
+                        title="No matching exhibitors"
+                        body="Try clearing your filter or searching for a broader product category."
+                      />
+                    </div>
+                  ) : (
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      {filtered.map((x) => (
+                        <article
+                          key={x.id}
+                          className="group flex flex-col rounded-2xl border border-slate-200/80 bg-white p-5 transition hover:border-slate-300"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex items-center gap-3">
+                              <ExhibitorLogo name={x.company} bg={x.logoBg} size={44} />
+                              <div>
+                                <h3 className="font-display text-[16px] font-bold text-slate-950">
+                                  {x.company}
+                                </h3>
+                                <p className="text-[13px] text-slate-500">
+                                  {x.category} · {x.country}
+                                </p>
+                              </div>
+                            </div>
+                            <Badge
+                              tone={
+                                x.badgeTier === "Platinum"
+                                  ? "purple"
+                                  : x.badgeTier === "Gold"
+                                  ? "warn"
+                                  : "neutral"
+                              }
+                            >
+                              {x.badgeTier}
+                            </Badge>
+                          </div>
+
+                          <p className="mt-3.5 line-clamp-2 text-[14px] leading-relaxed text-slate-600">
+                            {x.description}
+                          </p>
+
+                          <div className="mt-3.5 flex flex-wrap gap-1.5">
+                            {x.products.slice(0, 3).map((p: string) => (
+                              <span
+                                key={p}
+                                className="rounded-md bg-slate-100 px-2 py-0.5 text-[12px] font-medium text-slate-600"
+                              >
+                                {p}
+                              </span>
+                            ))}
+                          </div>
+
+                          <div className="mt-auto pt-4">
+                            <div className="flex items-center justify-between border-t border-slate-100 pt-3">
+                              <div className="flex items-center gap-2 text-[13px] text-slate-600">
+                                <span className="font-mono font-semibold text-slate-900">
+                                  {x.booth}
+                                </span>
+                                <span className="text-slate-300">•</span>
+                                <span>{x.hall}</span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setContact(x.company)}
+                                className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-slate-900 transition hover:text-brand-600"
+                              >
+                                <MessageSquare className="size-3.5" />
+                                Message
+                              </button>
+                            </div>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ---------- PROGRAMME (SCHEDULE) ---------- */}
+              {tab === "schedule" && (
+                <div className="space-y-8">
+                  {days.map((d) => {
+                    const daySessions = SESSIONS.filter((s) => s.day === d);
+                    return (
+                      <section
+                        key={d}
+                        className="rounded-2xl border border-slate-200/80 bg-white p-6"
+                      >
+                        <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-slate-100 pb-4">
+                          <div>
+                            <h3 className="font-display text-[18px] font-bold text-slate-950">
+                              {d}
+                            </h3>
+                            <p className="text-[13.5px] text-slate-500">
+                              {new Date(daySessions[0].date).toLocaleDateString("en-US", {
+                                weekday: "long",
+                                month: "long",
+                                day: "numeric",
+                              })}
+                            </p>
+                          </div>
+                          <span className="text-[13px] font-medium text-slate-500">
+                            {daySessions.length} scheduled sessions
+                          </span>
+                        </div>
+
+                        <div className="mt-4 space-y-3">
+                          {daySessions.map((s) => (
+                            <SessionCard key={s.id} s={s} />
+                          ))}
+                        </div>
+                      </section>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* ---------- FLOOR PLAN ---------- */}
+              {tab === "floorplan" && (
+                <div className="rounded-2xl border border-slate-200/80 bg-white p-6">
+                  <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h2 className="font-display text-[19px] font-bold text-slate-950">
+                        Exhibition Floor Map
+                      </h2>
+                      <p className="text-[13.5px] text-slate-500">
+                        Hall 4 · {expo.venue} — Click any booth for live availability
+                      </p>
+                    </div>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      icon={<Printer className="size-4" />}
+                      onClick={() => toast({ title: "Preparing printable floor plan…", tone: "info" })}
+                    >
+                      Print PDF
+                    </Button>
+                  </div>
+                  <FloorPlan mode="view" expoId={expo.id} />
+                </div>
+              )}
+
+              {/* ---------- METRICS (INSIGHTS) ---------- */}
+              {tab === "insights" && (
+                <div className="space-y-6">
+                  {/* Editorial KPI Strip */}
+                  <div className="grid grid-cols-2 divide-y divide-slate-100 rounded-2xl border border-slate-200/80 bg-white sm:grid-cols-4 sm:divide-x sm:divide-y-0">
+                    {[
+                      { label: "Session Fill Rate", value: "84%", sub: "+6% vs last edition" },
+                      { label: "Booth Occupancy", value: `${sold}%`, sub: `${expo.boothsSold}/${expo.boothsTotal} allocated` },
+                      { label: "Lead Conversion", value: "12.4%", sub: "Badge scan to pipeline" },
+                      { label: "Attendee NPS", value: "72", sub: "Top 5% industry benchmark" },
+                    ].map((stat) => (
+                      <div key={stat.label} className="p-5">
+                        <p className="text-[12.5px] font-medium text-slate-500">{stat.label}</p>
+                        <p className="mt-1.5 font-display text-[26px] font-extrabold tracking-tight text-slate-950 tabular-nums">
+                          {stat.value}
+                        </p>
+                        <p className="mt-1 text-[12px] text-slate-400">{stat.sub}</p>
                       </div>
-                      <div className="mt-4 flex items-center gap-2 border-t border-slate-100 pt-3.5">
-                        <Badge tone="brand" className="shrink-0">
-                          <MapPin className="size-3" /> {x.booth}
-                        </Badge>
-                        <span className="text-[11px] text-slate-400">{x.hall}</span>
-                        <Button size="xs" variant="ghost" className="ml-auto" icon={<MessageSquare className="size-3.5" />} onClick={() => setContact(x.company)}>
-                          Chat
-                        </Button>
-                      </div>
-                    </Card>
-                  ))}
+                    ))}
+                  </div>
+
+                  <div className="grid gap-6 lg:grid-cols-3">
+                    <div className="rounded-2xl border border-slate-200/80 bg-white p-6 lg:col-span-2">
+                      <h3 className="font-display text-[16px] font-bold text-slate-950">
+                        Daily Check-in Velocity
+                      </h3>
+                      <p className="mb-4 text-[13px] text-slate-500">
+                        Unique badge scans per day compared to prior edition
+                      </p>
+                      <AreaChart
+                        data={[
+                          { label: "Day 1", a: 4200, b: 3100 },
+                          { label: "Day 2", a: 6800, b: 4900 },
+                          { label: "Day 3", a: 9200, b: 6100 },
+                          { label: "Day 4", a: 8100, b: 7200 },
+                        ]}
+                        format={fmt}
+                        height={230}
+                      />
+                    </div>
+
+                    <div className="rounded-2xl border border-slate-200/80 bg-white p-6">
+                      <h3 className="font-display text-[16px] font-bold text-slate-950">
+                        Audience Composition
+                      </h3>
+                      <p className="mb-4 text-[13px] text-slate-500">Verified badge breakdown</p>
+                      <Donut
+                        centerLabel="Total"
+                        centerValue="100%"
+                        data={[
+                          { label: "Attendee", value: 68, color: "#0f172a" },
+                          { label: "Exhibitor", value: 19, color: "#4f46e5" },
+                          { label: "Press", value: 7, color: "#0ea5e9" },
+                          { label: "VIP", value: 6, color: "#f59e0b" },
+                        ]}
+                      />
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
-          )}
 
-          {/* SCHEDULE */}
-          {tab === "schedule" && (
-            <div className="space-y-6">
-              {days.map((d) => (
-                <Card key={d}>
-                  <CardHeader
-                    title={d}
-                    subtitle={new Date(SESSIONS.find((s) => s.day === d)!.date).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
-                    right={<Badge tone="brand">{SESSIONS.filter((s) => s.day === d).length} sessions</Badge>}
-                  />
-                  <div className="space-y-3 p-5">
-                    {SESSIONS.filter((s) => s.day === d).map((s) => (
-                      <SessionCard key={s.id} s={s} />
-                    ))}
-                  </div>
-                </Card>
-              ))}
-            </div>
-          )}
-
-          {/* FLOOR PLAN */}
-          {tab === "floorplan" && (
-            <div className="space-y-5">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <h2 className="font-display text-[19px] font-bold tracking-tight text-slate-900">Interactive floor plan</h2>
-                  <p className="mt-1 text-[13px] text-slate-500">Hall 4 · {expo.venue}</p>
+            {/* RIGHT COLUMN: STICKY TICKET & EXHIBITOR RAIL */}
+            <aside className="space-y-5 lg:sticky lg:top-34">
+              {/* Ticket Selector Card */}
+              <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-[0_2px_12px_-4px_rgba(15,23,42,0.06)]">
+                <div className="flex items-baseline justify-between">
+                  <h2 className="font-display text-[18px] font-bold text-slate-950">
+                    Registration
+                  </h2>
+                  <span className="text-[12.5px] font-medium text-emerald-700">
+                    Instant e-Badge
+                  </span>
                 </div>
-                <Button variant="secondary" icon={<Printer className="size-4" />} onClick={() => toast({ title: "Print view opening…", tone: "info" })}>
-                  Print plan
-                </Button>
-              </div>
-              <FloorPlan mode="view" expoId={expo.id} />
-            </div>
-          )}
 
-          {/* INSIGHTS */}
-          {tab === "insights" && (
-            <div className="space-y-6">
-              <div className="grid gap-6 lg:grid-cols-3">
-                <Card className="lg:col-span-2">
-                  <CardHeader title="Attendance trend" subtitle="Daily unique check-ins vs. previous edition" />
-                  <div className="p-5">
-                    <AreaChart data={[{ label: "D1", a: 4200, b: 3100 }, { label: "D2", a: 6800, b: 4900 }, { label: "D3", a: 9200, b: 6100 }, { label: "D4", a: 8100, b: 7200 }]} format={fmt} height={230} />
+                <div role="radiogroup" aria-label="Select pass tier" className="mt-4 space-y-2.5">
+                  {passes.map((t) => {
+                    const active = selectedTicket === t.n;
+                    return (
+                      <button
+                        key={t.n}
+                        type="button"
+                        role="radio"
+                        aria-checked={active}
+                        onClick={() => setSelectedTicket(t.n)}
+                        className={cn(
+                          "w-full rounded-xl border p-3.5 text-left transition",
+                          focusRing,
+                          active
+                            ? "border-slate-950 bg-slate-950/[0.02] ring-1 ring-slate-950"
+                            : "border-slate-200 hover:border-slate-300"
+                        )}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="flex items-center gap-2 text-[14px] font-semibold text-slate-950">
+                            {t.n}
+                            {t.best && (
+                              <span className="rounded bg-brand-50 px-1.5 py-0.5 text-[11px] font-semibold text-brand-700">
+                                Recommended
+                              </span>
+                            )}
+                          </span>
+                          <span className="font-display text-[17px] font-bold text-slate-950 tabular-nums">
+                            ${t.p}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-[12.5px] text-slate-500">{t.note}</p>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <Button
+                  full
+                  size="lg"
+                  className="mt-5"
+                  icon={<Ticket className="size-4" />}
+                  onClick={() => setReg(true)}
+                >
+                  Continue · ${chosen.p}
+                </Button>
+
+                {/* Booth Occupancy Meter */}
+                <div className="mt-5 border-t border-slate-100 pt-4">
+                  <div className="flex items-center justify-between text-[12.5px]">
+                    <span className="text-slate-500">Floor space allocated</span>
+                    <span className="font-semibold text-slate-900 tabular-nums">
+                      {sold}% ({available} booths open)
+                    </span>
                   </div>
-                </Card>
-                <Card>
-                  <CardHeader title="Registration mix" />
-                  <div className="p-5">
-                    <Donut
-                      centerLabel="of badges"
-                      centerValue="100%"
-                      data={[
-                        { label: "Attendee", value: 68, color: "#6854d9" },
-                        { label: "Exhibitor", value: 19, color: "#0ea5e9" },
-                        { label: "Press", value: 7, color: "#f97316" },
-                        { label: "VIP", value: 6, color: "#a855f7" },
-                      ]}
+                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100">
+                    <div
+                      className="h-full rounded-full bg-slate-900 transition-all"
+                      style={{ width: `${sold}%` }}
                     />
                   </div>
-                </Card>
+                  <div className="mt-3.5 flex items-center justify-between text-[13px]">
+                    <Link
+                      to="/register?role=exhibitor"
+                      className="font-semibold text-slate-950 underline decoration-slate-300 underline-offset-4 hover:decoration-slate-950"
+                    >
+                      Book a booth ({money(2600)}+)
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={() => setTab("floorplan")}
+                      className="font-medium text-slate-500 hover:text-slate-900"
+                    >
+                      View map →
+                    </button>
+                  </div>
+                </div>
               </div>
-              <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-                {[
-                  { l: "Session fill rate", v: 84, tone: "brand", s: "Average across 44 sessions" },
-                  { l: "Booth occupancy", v: sold, tone: "success", s: `${expo.boothsSold}/${expo.boothsTotal} booths` },
-                  { l: "Lead conversion", v: 12, tone: "info", s: "Scan → proposal sent" },
-                  { l: "NPS score", v: 72, tone: "purple", s: "Promoters vs. detractors" },
-                ].map((g) => (
-                  <Card key={g.l} className="p-5">
-                    <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">{g.l}</p>
-                    <div className="mt-3">
-                      <Gauge
-                        value={g.v}
-                        size={140}
-                        color={g.tone === "success" ? "#10b981" : g.tone === "info" ? "#0ea5e9" : g.tone === "purple" ? "#a855f7" : "#5947c6"}
-                      />
-                    </div>
-                    <p className="mt-1 text-center text-[11.5px] text-slate-500">{g.s}</p>
-                  </Card>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      </section>
 
-      {/* REGISTER MODAL */}
+              {/* Organizer Mini Card */}
+              <div className="rounded-2xl border border-slate-200/80 bg-white p-5">
+                <p className="text-[11.5px] font-semibold uppercase tracking-wider text-slate-400">
+                  Hosted by
+                </p>
+                <div className="mt-3 flex items-center gap-3">
+                  <img
+                    src={TESTIMONIALS[0].avatar}
+                    alt="EventSphere Management"
+                    className="size-10 rounded-full object-cover ring-1 ring-slate-200"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[14px] font-semibold text-slate-950">
+                      EventSphere Management
+                    </p>
+                    <p className="text-[12.5px] text-slate-500">Verified Organizer · Since 2014</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setContact("EventSphere Management")}
+                  className={cn(
+                    "mt-4 flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 py-2 text-[13px] font-semibold text-slate-700 transition hover:bg-slate-50",
+                    focusRing
+                  )}
+                >
+                  <MessageSquare className="size-3.5" />
+                  Message organizer
+                </button>
+              </div>
+            </aside>
+          </div>
+        </div>
+      </main>
+
+      {/* ============================== REGISTRATION MODAL ============================== */}
       <Modal
         open={reg}
         onClose={() => setReg(false)}
-        title={`Register — ${expo.title}`}
-        subtitle="Select your pass type and confirm your details"
+        title={`Reserve your pass`}
+        subtitle={`${expo.title} · ${dateRange(expo)}`}
         footer={
-          <>
-            <Button variant="ghost" onClick={() => setReg(false)} disabled={bookingPass}>
-              Cancel
-            </Button>
-            <Button
-              onClick={async () => {
-                if (!user) {
-                  localStorage.setItem(
-                    "eventsphere_pending_booking",
-                    JSON.stringify({
-                      expoId: expo.id && expo.id.length === 24 ? expo.id : "6b0001fbc32ac2ad55711ad7",
-                      expoSlug: expo.slug,
-                      ticketType: selectedTicket,
-                      quantity: ticketQty,
-                    })
-                  );
-                  toast({
-                    title: "Authentication Required",
-                    body: "Please sign in or register to complete your ticket booking.",
-                    tone: "info",
-                  });
-                  nav(`/login?redirect=/expos/${expo.slug}&role=attendee`);
-                  return;
-                }
-
-                setBookingPass(true);
-                try {
-                  const targetExpoId = expo.id && expo.id.length === 24 ? expo.id : "6b0001fbc32ac2ad55711ad7";
-                  await createLiveOrder({
-                    orderType: "ticket_registration",
-                    expoId: targetExpoId,
-                    ticketType: selectedTicket,
-                    quantity: ticketQty,
-                  });
-
-                  setReg(false);
-                  toast({
-                    title: "Registration Confirmed in MongoDB 🎉",
-                    body: `Your ticket for ${expo.title} has been confirmed.`,
-                    tone: "success",
-                  });
-                  nav("/attendee");
-                } catch (err: any) {
-                  toast({
-                    title: "Booking Failed",
-                    body: err.message || "Failed to create registration order.",
-                    tone: "danger",
-                  });
-                } finally {
-                  setBookingPass(false);
-                }
-              }}
-              disabled={bookingPass}
-            >
-              {bookingPass ? "Processing..." : "Proceed to Checkout"}
-            </Button>
-          </>
+          <div className="flex w-full items-center justify-between">
+            <div>
+              <span className="text-[12px] text-slate-500">Total due</span>
+              <p className="font-display text-[20px] font-extrabold text-slate-950 tabular-nums">
+                ${chosen.p * ticketQty}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="ghost" onClick={() => setReg(false)} disabled={bookingPass}>
+                Cancel
+              </Button>
+              <Button onClick={checkout} disabled={bookingPass}>
+                {bookingPass ? "Issuing pass…" : "Confirm & Checkout"}
+              </Button>
+            </div>
+          </div>
         }
       >
         <div className="space-y-5">
-          <div className="grid gap-3 sm:grid-cols-3">
-            {[
-              { n: "Day Pass", p: expo.price },
-              { n: "Full Pass", p: 349, best: true },
-              { n: "VIP", p: 850 },
-            ].map((t) => (
-              <div
-                key={t.n}
-                onClick={() => setSelectedTicket(t.n)}
-                className={cn(
-                  "cursor-pointer rounded-2xl border-2 p-4 transition",
-                  selectedTicket === t.n
-                    ? "border-brand-500 bg-brand-50/50 shadow-sm"
-                    : "border-slate-200 hover:border-slate-300"
-                )}
-              >
-                {t.best && <Badge tone="brand" className="mb-2">Most popular</Badge>}
-                <p className="text-[12.5px] font-bold text-slate-900">{t.n}</p>
-                <p className="mt-1 font-display text-[22px] font-extrabold text-slate-900">${t.p}</p>
-                <p className="mt-0.5 text-[11px] text-slate-500">per person</p>
-              </div>
-            ))}
+          {/* Pass Picker */}
+          <div role="radiogroup" aria-label="Pass tier" className="grid gap-2.5 sm:grid-cols-3">
+            {passes.map((t) => {
+              const active = selectedTicket === t.n;
+              return (
+                <button
+                  key={t.n}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  onClick={() => setSelectedTicket(t.n)}
+                  className={cn(
+                    "rounded-xl border p-3.5 text-left transition",
+                    focusRing,
+                    active
+                      ? "border-slate-950 bg-slate-50 ring-1 ring-slate-950"
+                      : "border-slate-200 hover:border-slate-300"
+                  )}
+                >
+                  <p className="text-[13px] font-semibold text-slate-900">{t.n}</p>
+                  <p className="mt-1 font-display text-[20px] font-extrabold text-slate-950 tabular-nums">
+                    ${t.p}
+                  </p>
+                  <p className="mt-0.5 text-[12px] leading-snug text-slate-500">{t.note}</p>
+                </button>
+              );
+            })}
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Full name" required>
-              <input
-                className="h-11 w-full rounded-xl border border-slate-200 px-3.5 text-[14px] outline-none focus:border-brand-400 focus:ring-4 focus:ring-brand-500/12"
-                defaultValue={user?.name || "Attendee Guest"}
-              />
-            </Field>
-            <Field label="Email" required>
-              <input
-                className="h-11 w-full rounded-xl border border-slate-200 px-3.5 text-[14px] outline-none focus:border-brand-400 focus:ring-4 focus:ring-brand-500/12"
-                defaultValue={user?.email || "attendee@example.com"}
-              />
-            </Field>
-            <Field label="Company">
-              <input
-                className="h-11 w-full rounded-xl border border-slate-200 px-3.5 text-[14px] outline-none focus:border-brand-400 focus:ring-4 focus:ring-brand-500/12"
-                defaultValue={user?.company || "Tech Innovators"}
-              />
-            </Field>
-            <Field label="Quantity">
-              <select
-                value={ticketQty}
-                onChange={(e) => setTicketQty(Number(e.target.value))}
-                className="h-11 w-full rounded-xl border border-slate-200 px-3.5 text-[14px] outline-none focus:border-brand-400 focus:ring-4 focus:ring-brand-500/12 bg-white"
-              >
-                {[1, 2, 3, 4, 5].map((q) => (
-                  <option key={q} value={q}>
-                    {q} Pass{q > 1 ? "es" : ""}
-                  </option>
-                ))}
-              </select>
-            </Field>
-          </div>
-          <div className="flex items-center justify-between rounded-xl bg-slate-50 p-4">
+          {/* Quantity Stepper */}
+          <div className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3">
             <div>
-              <p className="text-[13px] font-bold text-slate-900">Total payable calculated server-side</p>
-              <p className="text-[11.5px] text-slate-500">Secure 256-bit SSL encryption & official tax invoice included</p>
+              <p className="text-[14px] font-semibold text-slate-900">Number of passes</p>
+              <p className="text-[12.5px] text-slate-500">Group badges can be assigned later</p>
             </div>
-            <Badge tone="brand">Official Booking</Badge>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                aria-label="Decrease quantity"
+                onClick={() => setTicketQty((q) => Math.max(1, q - 1))}
+                className="flex size-8 items-center justify-center rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50"
+              >
+                <Minus className="size-3.5" />
+              </button>
+              <span className="w-5 text-center font-display text-[15px] font-bold tabular-nums">
+                {ticketQty}
+              </span>
+              <button
+                type="button"
+                aria-label="Increase quantity"
+                onClick={() => setTicketQty((q) => Math.min(10, q + 1))}
+                className="flex size-8 items-center justify-center rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50"
+              >
+                <Plus className="size-3.5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Attendee Info */}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Attendee full name" required>
+              <input
+                className={inputCls}
+                defaultValue={user?.name || ""}
+                placeholder="e.g. Sarah Jenkins"
+                autoComplete="name"
+              />
+            </Field>
+            <Field label="Work email" required>
+              <input
+                type="email"
+                className={inputCls}
+                defaultValue={user?.email || ""}
+                placeholder="sarah@company.com"
+                autoComplete="email"
+              />
+            </Field>
           </div>
         </div>
       </Modal>
 
-      {/* CONTACT MODAL */}
+      {/* ============================== CONTACT ORGANIZER / EXHIBITOR MODAL ============================== */}
       <Modal
-        open={!!contact}
-        onClose={() => setContact(null)}
-        title={`Message ${contact}`}
-        subtitle="Sent through EventSphere — replies arrive in your inbox"
+        open={Boolean(contact)}
+        onClose={() => {
+          setContact(null);
+          setContactMsg("");
+        }}
+        title={`Message ${contact ?? ""}`}
+        subtitle="Direct inquiry via EventSphere Messenger"
         footer={
           <>
-            <Button variant="ghost" onClick={() => setContact(null)}>Cancel</Button>
-            <Button icon={<MessageSquare className="size-4" />} onClick={() => { setContact(null); toast({ title: "Message sent", body: `${contact} will reply within one business day.`, tone: "success" }); }}>
+            <Button variant="ghost" onClick={() => setContact(null)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                toast({
+                  title: "Message sent",
+                  body: `Your inquiry has been delivered to ${contact}.`,
+                  tone: "success",
+                });
+                setContact(null);
+                setContactMsg("");
+              }}
+              disabled={!contactMsg.trim()}
+            >
               Send message
             </Button>
           </>
         }
       >
         <div className="space-y-4">
-          <Field label="Subject" required><input defaultValue={`Enquiry about ${contact}`} className="h-11 w-full rounded-xl border border-slate-200 px-3.5 text-[14px] outline-none focus:border-brand-400 focus:ring-4 focus:ring-brand-500/12" /></Field>
-          <Field label="Message" required>
-            <Textarea placeholder="Hi, I'd like to know more about…" />
+          <Field label="Your message" required>
+            <Textarea
+              rows={4}
+              value={contactMsg}
+              onChange={(e: any) => setContactMsg(e.target.value)}
+              placeholder="Ask about booth availability, group discounts, or meeting times…"
+            />
           </Field>
-          <div className="flex items-center gap-2 rounded-xl bg-brand-50 p-3.5 text-[12px] text-brand-800">
-            <Clock className="size-4 shrink-0" />
-            Typical response time is under 4 hours during expo week.
-          </div>
         </div>
       </Modal>
     </Shell>

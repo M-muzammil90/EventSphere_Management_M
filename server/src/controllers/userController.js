@@ -23,7 +23,7 @@ export const getProfile = asyncHandler(async (req, res) => {
 });
 
 export const updateProfile = asyncHandler(async (req, res) => {
-  const allowed = ["name", "phone", "jobTitle", "address"];
+  const allowed = ["name", "phone", "jobTitle", "address", "company", "bio"];
   const updates = {};
   allowed.forEach((k) => {
     if (req.body[k] !== undefined) updates[k] = req.body[k];

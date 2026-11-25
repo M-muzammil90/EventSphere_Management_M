@@ -127,6 +127,10 @@ export const deleteBooth = asyncHandler(async (req, res) => {
     : await Booth.findOne({ boothId: req.params.id });
   if (!booth) throw ApiError.notFound("Booth not found");
 
+  if (["booked", "reserved"].includes(booth.status)) {
+    throw ApiError.conflict(`Cannot delete a ${booth.status} booth`);
+  }
+
   await booth.deleteOne();
   emitToExpo(String(booth.expo), "booth:updated", {
     expoId: String(booth.expo), boothId: booth.boothId, status: "deleted",
@@ -250,6 +254,10 @@ export const assignBooth = asyncHandler(async (req, res) => {
     profile = /^[0-9a-fA-F]{24}$/.test(exhibitor)
       ? await ExhibitorProfile.findById(exhibitor)
       : await ExhibitorProfile.findOne({ "company.name": new RegExp(`^${exhibitor}$`, "i") });
+  }
+
+  if (booth.status === "booked" && booth.exhibitor && profile && String(booth.exhibitor) !== String(profile._id)) {
+    throw ApiError.conflict(`Booth ${booth.boothId} is already booked by another exhibitor`);
   }
 
   // If the exhibitor already holds another booth in this expo, release it first so the 1-booth-per-expo unique constraint is satisfied

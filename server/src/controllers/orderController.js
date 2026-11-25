@@ -133,10 +133,21 @@ export const createOrder = asyncHandler(async (req, res) => {
       throw ApiError.conflict("This expo has reached maximum attendee capacity.");
     }
 
-    // Check duplicate
-    const existing = await EventRegistration.findOne({ expo: expoId, user: req.user._id, status: { $ne: "cancelled" } });
+    // Check duplicate or link existing registration
+    const targetRegId = req.body.registrationId;
+    let existing = null;
+    if (targetRegId) {
+      existing = await EventRegistration.findById(targetRegId);
+    }
+    if (!existing) {
+      existing = await EventRegistration.findOne({ expo: expoId, user: req.user._id, status: { $ne: "cancelled" } });
+    }
+
     if (existing) {
-      throw ApiError.conflict("You already have an active registration for this expo.");
+      if (existing.status === "confirmed" || existing.status === "attended") {
+        throw ApiError.conflict(`You already have a confirmed registration for ${expo.title} (${existing.ticketType})`);
+      }
+      registration = existing;
     }
 
     // Fetch MongoDB price
@@ -161,27 +172,38 @@ export const createOrder = asyncHandler(async (req, res) => {
       metadata: { ticketType, expoId },
     });
 
-    // Create pending registration record
-    registration = await EventRegistration.create({
-      expo: expoId,
-      user: req.user._id,
-      ticketType,
-      status: unitPrice === 0 ? "confirmed" : "pending_payment",
-      attendeeSnapshot: {
-        name: billingDetails?.name || req.user.name,
-        email: billingDetails?.email || req.user.email,
-        company: billingDetails?.company || req.user.company,
-        phone: billingDetails?.phone || req.user.phone,
-      },
-      pricing: {
+    // Create pending registration record if not already existing
+    if (!registration) {
+      registration = await EventRegistration.create({
+        expo: expoId,
+        user: req.user._id,
+        ticketType,
+        status: unitPrice === 0 ? "confirmed" : "pending_payment",
+        attendeeSnapshot: {
+          name: billingDetails?.name || req.user.name,
+          email: billingDetails?.email || req.user.email,
+          company: billingDetails?.company || req.user.company,
+          phone: billingDetails?.phone || req.user.phone,
+        },
+        pricing: {
+          unitPrice,
+          quantity: qty,
+          subtotal,
+          total: subtotal,
+          currency,
+        },
+        badgeCode: `BDG-${Date.now()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`,
+      });
+    } else {
+      registration.pricing = {
         unitPrice,
         quantity: qty,
         subtotal,
         total: subtotal,
         currency,
-      },
-      badgeCode: `BDG-${Date.now()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`,
-    });
+      };
+      await registration.save();
+    }
   }
 
   // 3. WORKSHOP REGISTRATION

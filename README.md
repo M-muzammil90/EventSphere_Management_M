@@ -697,3 +697,33 @@ Verified end-to-end: authentication, role authorization, expo CRUD, exhibitor ap
 **Exhibitor portal (10 tabs):** Overview · Expo Applications · Booth & Floor Plan · Leads · Appointments · Documents · Company Profile · Staff & Badges · Messages · Settings
 
 **Attendee dashboard (8 tabs):** Overview · My Agenda · Appointments · Feedback · Exhibitor Search · Event Registration · Alerts · My Tickets
+
+---
+
+## 23. Testing, Build & Docker Deployment
+
+### Frontend Testing (Vitest + React Testing Library)
+```bash
+npm test
+```
+
+### Backend Integration Tests (Jest + Supertest + MongoDB)
+```bash
+npm --prefix server test
+```
+
+### Production Build
+```bash
+npx tsc --noEmit
+npm run build
+```
+
+### Docker Compose (MongoDB + Backend API + Nginx Frontend)
+```bash
+JWT_SECRET=your_strong_32_plus_char_secret docker compose up --build -d
+```
+- **Frontend**: `http://localhost:8080`
+- **Backend API**: `http://localhost:5000/api/v1`
+- **Health Check**: `http://localhost:5000/api/health`
+
+See [DEVELOPMENT_GUIDE.md](./DEVELOPMENT_GUIDE.md) for full developer setup, environment variables, and security architecture details.

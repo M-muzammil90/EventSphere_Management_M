@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   getProviderStatus,
+  getPaymentQuote,
   initiatePayment,
   verifyPayment,
   handleWebhook,
@@ -26,6 +27,7 @@ router.post("/webhooks/:provider", handleWebhook);
 router.use(protect);
 
 router.get("/providers", getProviderStatus);
+router.post("/quote", getPaymentQuote);
 router.post("/initiate", initiatePayment);
 router.post("/verify/:orderId", verifyPayment);
 router.get("/verify/:orderId", verifyPayment);

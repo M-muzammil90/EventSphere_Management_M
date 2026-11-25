@@ -1,16 +1,29 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Navbar, Footer } from "@/components/SiteLayout";
-import { Badge, Button, Card, EmptyState, Select } from "@/components/ui";
+import { Shell } from "@/components/SiteLayout";
+import { Badge, Button, Card, EmptyState } from "@/components/ui";
 import { fetchLiveSessions } from "@/lib/liveApi";
 import { type Session } from "@/lib/data";
+import { cn } from "@/utils/cn";
 import {
+  ArrowUpRight,
   CalendarClock,
+  Layers,
   MapPin,
   Mic,
   Search,
-  Sparkles,
+  Users,
+  X,
 } from "lucide-react";
+
+interface SpeakerProfile {
+  name: string;
+  role: string;
+  company: string;
+  avatar: string;
+  sessions: Session[];
+  tracks: string[];
+}
 
 export default function SpeakersPage() {
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -25,16 +38,8 @@ export default function SpeakersPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  // Extract unique speakers from sessions
-  const speakers = useMemo(() => {
-    const map = new Map<string, {
-      name: string;
-      role: string;
-      company: string;
-      avatar?: string;
-      sessions: Session[];
-      tracks: string[];
-    }>();
+  const speakers = useMemo<SpeakerProfile[]>(() => {
+    const map = new Map<string, SpeakerProfile>();
 
     sessions.forEach((s) => {
       const speakerName = s.speaker || "Distinguished Speaker";
@@ -43,7 +48,9 @@ export default function SpeakersPage() {
           name: speakerName,
           role: s.speakerRole || "Keynote Presenter",
           company: s.company || "Industry Pioneer",
-          avatar: s.avatar || "https://images.pexels.com/photos/7752822/pexels-photo-7752822.jpeg?auto=compress&cs=tinysrgb&dpr=1&h=200&w=200",
+          avatar:
+            s.avatar ||
+            "https://images.pexels.com/photos/7752822/pexels-photo-7752822.jpeg?auto=compress&cs=tinysrgb&dpr=1&h=200&w=200",
           sessions: [],
           tracks: [],
         });
@@ -73,154 +80,234 @@ export default function SpeakersPage() {
     });
   }, [speakers, q, track]);
 
+  const hasFilters = !!q || track !== "All";
+  const clearFilters = () => {
+    setQ("");
+    setTrack("All");
+  };
+
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col justify-between">
-      <Navbar />
-
-      <main className="flex-1">
-        {/* Hero Section */}
-        <section className="relative overflow-hidden bg-ink-950 py-16 text-white sm:py-24">
-          <div className="absolute inset-0 grid-noise-dark opacity-40" />
-          <div className="pointer-events-none absolute -left-20 -top-20 size-96 rounded-full bg-brand-600/30 blur-3xl" />
-          <div className="relative mx-auto max-w-7xl px-4 text-center sm:px-6 lg:px-8">
-            <Badge tone="brand" className="bg-white/10 text-brand-200 ring-white/15">
-              <Sparkles className="size-3" /> EventSphere Thought Leaders
-            </Badge>
-            <h1 className="mt-4 font-display text-[32px] font-extrabold tracking-tight sm:text-[44px]">
-              World-Class Keynotes & Industry Speakers
-            </h1>
-            <p className="mx-auto mt-3 max-w-2xl text-[15px] leading-relaxed text-slate-300">
-              Meet the global visionaries, enterprise executives, and technical pioneers presenting across EventSphere expos.
-            </p>
-          </div>
-        </section>
-
-        {/* Filters */}
-        <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-          <Card className="mb-8 p-4">
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="relative min-w-0 flex-1">
-                <input
-                  value={q}
-                  onChange={(e) => setQ(e.target.value)}
-                  placeholder="Search speakers by name, company, or topic..."
-                  className="h-11 w-full rounded-xl border border-slate-200 pl-10 pr-4 text-[14px] outline-none transition focus:border-brand-400 focus:ring-4 focus:ring-brand-500/12"
-                />
-                <Search className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
-              </div>
-              <Select value={track} onChange={(e) => setTrack(e.target.value)} className="h-11 min-w-[200px]">
-                {allTracks.map((t) => (
-                  <option key={t} value={t}>
-                    {t === "All" ? "All Tracks" : t}
-                  </option>
-                ))}
-              </Select>
-              <Badge tone="neutral" className="h-9 px-3">
-                {filteredSpeakers.length} speakers
-              </Badge>
+    <Shell>
+      {/* ============================== EDITORIAL HEADER ============================== */}
+      <header className="border-b border-slate-200/80 bg-white pt-10 pb-10 sm:pt-12">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="grid gap-8 lg:grid-cols-12 lg:items-end">
+            <div className="lg:col-span-8">
+              <span className="inline-flex rounded-md bg-brand-50 px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.12em] text-brand-600">
+                Speaker Lineup
+              </span>
+              <h1 className="mt-4 font-display text-[34px] font-extrabold leading-[1.08] tracking-[-0.03em] text-slate-950 sm:text-[46px]">
+                Keynotes & industry leaders.
+              </h1>
+              <p className="mt-3.5 max-w-2xl text-[15.5px] leading-relaxed text-slate-600">
+                Meet the founders, operators, and technical leads sharing practical playbooks
+                across EventSphere stages.
+              </p>
             </div>
-          </Card>
 
+            {/* Compact Metric Strip */}
+            <dl className="grid grid-cols-2 divide-x divide-slate-100 rounded-2xl border border-slate-200/90 bg-[#FAFAFA] lg:col-span-4">
+              <div className="p-4">
+                <div className="flex items-center gap-1.5 text-slate-400">
+                  <Users className="size-3.5 text-brand-600" />
+                  <dt className="text-[11.5px] font-medium text-slate-500">Speakers</dt>
+                </div>
+                <dd className="mt-1.5 font-display text-[22px] font-extrabold leading-none text-slate-950 tabular-nums">
+                  {speakers.length}
+                </dd>
+              </div>
+              <div className="p-4">
+                <div className="flex items-center gap-1.5 text-slate-400">
+                  <Layers className="size-3.5 text-brand-600" />
+                  <dt className="text-[11.5px] font-medium text-slate-500">Tracks</dt>
+                </div>
+                <dd className="mt-1.5 font-display text-[22px] font-extrabold leading-none text-slate-950 tabular-nums">
+                  {Math.max(0, allTracks.length - 1)}
+                </dd>
+              </div>
+            </dl>
+          </div>
+        </div>
+      </header>
+
+      {/* ============================== FILTER BAR ============================== */}
+      <section className="sticky top-16 z-30 border-b border-slate-200/90 bg-white/95 backdrop-blur-md">
+        <div className="mx-auto max-w-7xl space-y-3 px-4 py-3.5 sm:px-6 lg:px-8">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            {/* Search Input */}
+            <div className="relative min-w-0 flex-1 sm:max-w-sm">
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+              <input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="Search by name, company, or topic…"
+                aria-label="Search speakers"
+                className="h-10 w-full rounded-xl border border-slate-200 bg-[#FAFAFA] pl-9 pr-3 text-[13.5px] text-slate-900 outline-none transition focus:border-slate-900 focus:bg-white focus:ring-2 focus:ring-slate-900/10"
+              />
+            </div>
+
+            <div className="flex items-center gap-2.5">
+              {hasFilters && (
+                <button
+                  type="button"
+                  onClick={clearFilters}
+                  className="inline-flex h-10 items-center gap-1 rounded-xl px-2.5 text-[13px] font-semibold text-slate-500 transition hover:text-slate-950"
+                >
+                  <X className="size-3.5" />
+                  Reset
+                </button>
+              )}
+              <span className="text-[13px] text-slate-500 tabular-nums">
+                <span className="font-semibold text-slate-950">{filteredSpeakers.length}</span> of{" "}
+                {speakers.length} speakers
+              </span>
+            </div>
+          </div>
+
+          {/* Track Pills */}
+          {allTracks.length > 1 && (
+            <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-0.5 [scrollbar-width:none]">
+              {allTracks.map((t) => {
+                const active = track === t;
+                return (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => setTrack(t)}
+                    aria-pressed={active}
+                    className={cn(
+                      "shrink-0 rounded-xl border px-3 py-1.5 text-[12.5px] font-semibold transition",
+                      active
+                        ? "border-ink-950 bg-ink-950 text-white"
+                        : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950"
+                    )}
+                  >
+                    {t === "All" ? "All tracks" : t}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* ============================== SPEAKERS GRID ============================== */}
+      <main className="bg-[#FAFAFA] py-10 sm:py-14">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           {loading ? (
-            <div className="py-20 text-center text-slate-400 text-[14px]">
-              Loading speaker directory...
+            <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+              {Array.from({ length: 6 }).map((_, idx) => (
+                <div
+                  key={idx}
+                  className="h-72 animate-pulse rounded-2xl border border-slate-200/80 bg-white p-6"
+                />
+              ))}
             </div>
           ) : filteredSpeakers.length === 0 ? (
-            <EmptyState
-              icon={<Mic className="size-8" />}
-              title="No speakers match your query"
-              body="Try widening your search terms or clearing track filters."
-              action={
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  onClick={() => {
-                    setQ("");
-                    setTrack("All");
-                  }}
-                >
-                  Reset filters
-                </Button>
-              }
-            />
+            <Card className="border-slate-200/90 bg-white">
+              <EmptyState
+                icon={<Mic className="size-6" />}
+                title="No speakers found"
+                body="Try clearing your search query or switching to another track."
+                action={
+                  <Button size="sm" variant="secondary" onClick={clearFilters}>
+                    Reset filters
+                  </Button>
+                }
+              />
+            </Card>
           ) : (
-            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
               {filteredSpeakers.map((sp) => (
-                <Card key={sp.name} hover className="flex flex-col justify-between overflow-hidden p-6">
+                <article
+                  key={sp.name}
+                  className="group flex flex-col justify-between rounded-2xl border border-slate-200/90 bg-white p-6 transition-all duration-200 hover:border-brand-200 hover:shadow-[0_14px_32px_-22px_rgba(23,28,53,.22)]"
+                >
                   <div>
-                    <div className="flex items-start gap-4">
+                    {/* Speaker Header */}
+                    <div className="flex items-center gap-3.5">
                       <img
                         src={sp.avatar}
                         alt={sp.name}
-                        className="size-16 rounded-2xl object-cover ring-2 ring-brand-500/20 shadow-md"
+                        loading="lazy"
+                        className="size-14 shrink-0 rounded-xl border border-slate-200/80 object-cover"
                       />
                       <div className="min-w-0 flex-1">
-                        <h3 className="truncate font-display text-[16px] font-bold text-slate-900">
+                        <h2 className="truncate font-display text-[17px] font-bold tracking-tight text-slate-950">
                           {sp.name}
-                        </h3>
-                        <p className="truncate text-[12px] font-medium text-brand-600">
+                        </h2>
+                        <p className="truncate text-[12.5px] font-semibold text-brand-600">
                           {sp.role}
                         </p>
-                        <p className="truncate text-[11.5px] text-slate-500">
-                          {sp.company}
-                        </p>
+                        <p className="truncate text-[12px] text-slate-500">{sp.company}</p>
                       </div>
                     </div>
 
-                    <div className="mt-4 flex flex-wrap gap-1.5">
-                      {sp.tracks.map((t) => (
-                        <Badge key={t} tone="brand">
-                          {t}
-                        </Badge>
-                      ))}
-                    </div>
+                    {/* Tracks */}
+                    {sp.tracks.length > 0 && (
+                      <div className="mt-4 flex flex-wrap gap-1.5">
+                        {sp.tracks.map((t) => (
+                          <Badge key={t} tone="brand">
+                            {t}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
 
-                    <div className="mt-4 border-t border-slate-100 pt-3">
-                      <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                        Presenting Sessions ({sp.sessions.length})
-                      </p>
-                      <div className="mt-2 space-y-2">
+                    {/* Sessions List */}
+                    <div className="mt-4 border-t border-slate-100 pt-4">
+                      <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                        <span>Sessions</span>
+                        <span className="tabular-nums">{sp.sessions.length}</span>
+                      </div>
+
+                      <div className="mt-2.5 space-y-2">
                         {sp.sessions.slice(0, 2).map((s) => (
-                          <div key={s.id} className="rounded-xl border border-slate-100 bg-slate-50/80 p-2.5">
-                            <p className="line-clamp-1 text-[12.5px] font-semibold text-slate-900">
+                          <div
+                            key={s.id}
+                            className="rounded-xl border border-slate-200/70 bg-[#FAFAFA] px-3 py-2.5"
+                          >
+                            <p className="line-clamp-1 text-[13px] font-semibold text-slate-900">
                               {s.title}
                             </p>
-                            <p className="mt-0.5 flex items-center gap-2 text-[11px] text-slate-500">
+                            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-slate-500">
                               <span className="inline-flex items-center gap-1">
-                                <CalendarClock className="size-3 text-brand-500" />
+                                <CalendarClock className="size-3 text-brand-600" />
                                 {s.day} · {s.start}
                               </span>
                               <span className="inline-flex items-center gap-1">
-                                <MapPin className="size-3" />
+                                <MapPin className="size-3 text-slate-400" />
                                 {s.stage}
                               </span>
-                            </p>
+                            </div>
                           </div>
                         ))}
                       </div>
                     </div>
                   </div>
 
-                  <div className="mt-5 border-t border-slate-100 pt-3 flex items-center justify-between">
-                    <Link to="/schedule">
-                      <Button size="xs" variant="ghost">
-                        View in Schedule
-                      </Button>
+                  {/* Card Footer */}
+                  <div className="mt-5 flex items-center justify-between border-t border-slate-100 pt-3.5">
+                    <Link
+                      to="/schedule"
+                      className="inline-flex items-center gap-1 text-[12.5px] font-semibold text-slate-600 transition hover:text-slate-950"
+                    >
+                      <span>View in schedule</span>
+                      <ArrowUpRight className="size-3.5" />
                     </Link>
-                    <Link to="/contact">
-                      <Button size="xs" variant="soft">
-                        Connect
-                      </Button>
+                    <Link
+                      to="/contact"
+                      className="rounded-lg bg-brand-50 px-3 py-1.5 text-[12px] font-semibold text-brand-600 transition hover:bg-brand-600 hover:text-white"
+                    >
+                      Connect
                     </Link>
                   </div>
-                </Card>
+                </article>
               ))}
             </div>
           )}
         </div>
       </main>
-
-      <Footer />
-    </div>
+    </Shell>
   );
 }

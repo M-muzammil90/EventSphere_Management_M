@@ -1,8 +1,9 @@
 import rateLimit from "express-rate-limit";
 
+const isDev = process.env.NODE_ENV === "development";
 const windowMs = parseInt(process.env.RATE_LIMIT_WINDOW_MS || "900000", 10);
-const max = parseInt(process.env.RATE_LIMIT_MAX || "300", 10);
-const authMax = parseInt(process.env.AUTH_RATE_LIMIT_MAX || "20", 10);
+const max = parseInt(process.env.RATE_LIMIT_MAX || (isDev ? "2000" : "300"), 10);
+const authMax = parseInt(process.env.AUTH_RATE_LIMIT_MAX || (isDev ? "200" : "20"), 10);
 
 const message = { success: false, message: "Too many requests from this IP — please try again later" };
 

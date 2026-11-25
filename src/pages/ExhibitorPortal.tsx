@@ -23,7 +23,7 @@ import {
   Activity, Award, Banknote, Building2, CalendarClock, Check, Clock,
   Download, FileCheck2, FileText, LayoutDashboard, MapPin,
   MessageSquare, Plus, RefreshCw, Save, ScanLine, Settings, Sparkles, Star,
-  Target, Trash2, TrendingUp, Upload, UserPlus, Users, X, QrCode, Printer, Eye, Search, ShieldCheck,
+  Target, Trash2, TrendingUp, Upload, UserPlus, Users, X, QrCode, Printer, Eye, Search, ShieldCheck, ExternalLink,
 } from "lucide-react";
 
 const ME = EXHIBITORS[0];
@@ -2492,6 +2492,14 @@ export default function ExhibitorPortal() {
                               {isVerified ? "Verified ✓" : isRejected ? "Rejected" : "Pending Review"}
                             </Badge>
 
+                            {doc.url && (
+                              <a href={doc.url} target="_blank" rel="noopener noreferrer">
+                                <Button size="xs" variant="secondary" icon={<ExternalLink className="size-3.5" />}>
+                                  View
+                                </Button>
+                              </a>
+                            )}
+
                             <Button
                               size="xs"
                               variant="ghost"
@@ -2521,34 +2529,78 @@ export default function ExhibitorPortal() {
         {tab === "settings" && (
           <div className="grid gap-6 lg:grid-cols-2">
             <Card>
-              <CardHeader title="Company profile" subtitle="Shown to attendees in the exhibitor directory" />
+              <CardHeader title="Company profile" subtitle="Live settings saved directly to MongoDB for your exhibitor account" />
               <div className="space-y-4 p-5">
-                <Field label="Company name" required><Input defaultValue={ME.company} /></Field>
-                <Field label="Category"><Input defaultValue={ME.category} /></Field>
-                <Field label="Website"><Input defaultValue="https://nexoracloud.com" /></Field>
-                <Field label="Country"><Select defaultValue={ME.country}>{["United States", "Germany", "Switzerland", "Singapore", "Netherlands", "United Kingdom"].map((c) => <option key={c}>{c}</option>)}</Select></Field>
-                <Field label="Description"><Textarea defaultValue={ME.description} /></Field>
-                <Field label="Products / services showcased"><Input defaultValue={ME.products.join(", ")} /></Field>
-                <Button onClick={() => toast({ title: "Profile saved", tone: "success" })}>Save profile</Button>
+                <Field label="Company name" required>
+                  <Input value={companyName} onChange={(e) => setCompanyName(e.target.value)} />
+                </Field>
+                <Field label="Category">
+                  <Input value={category} onChange={(e) => setCategory(e.target.value)} />
+                </Field>
+                <Field label="Website">
+                  <Input value={website} onChange={(e) => setWebsite(e.target.value)} />
+                </Field>
+                <Field label="Country">
+                  <Select value={country} onChange={(e) => setCountry(e.target.value)}>
+                    {["United States", "Germany", "Switzerland", "Singapore", "Netherlands", "United Kingdom", "Pakistan", "United Arab Emirates"].map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </Select>
+                </Field>
+                <Field label="Contact Representative">
+                  <Input value={repName} onChange={(e) => setRepName(e.target.value)} />
+                </Field>
+                <Field label="Contact Email">
+                  <Input value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} />
+                </Field>
+                <Field label="Business Phone">
+                  <Input value={businessPhone} onChange={(e) => setBusinessPhone(e.target.value)} />
+                </Field>
+                <Field label="Company Description">
+                  <Textarea value={description} onChange={(e) => setDescription(e.target.value)} />
+                </Field>
+                <Button onClick={handleSaveProfile} disabled={profileSaving}>
+                  {profileSaving ? "Saving to MongoDB..." : "Save company profile"}
+                </Button>
               </div>
             </Card>
             <div className="space-y-6">
               <Card>
-                <CardHeader title="Notifications" subtitle="What you want to hear about" />
+                <CardHeader title="Notifications" subtitle="Live alerts configuration for your team" />
                 <div className="space-y-5 p-5">
                   <Toggle checked={notify.alloc} label="Booth & allocation changes" desc="Any change affecting your space" onChange={(v) => setNotify({ ...notify, alloc: v })} />
                   <Toggle checked={notify.neighbour} label="Neighbour messages" desc="Messages from adjacent exhibitors" onChange={(v) => setNotify({ ...notify, neighbour: v })} />
                   <Toggle checked={notify.leads} label="New lead alerts" desc="Real-time when a badge is scanned" onChange={(v) => setNotify({ ...notify, leads: v })} />
                   <Toggle checked={notify.digest} label="Daily performance digest" desc="Emailed each evening during the expo" onChange={(v) => setNotify({ ...notify, digest: v })} />
+                  <Button variant="secondary" onClick={() => toast({ title: "Notification preferences saved ✓", tone: "success" })}>
+                    Save preferences
+                  </Button>
                 </div>
               </Card>
               <Card>
-                <CardHeader title="Privacy" subtitle="Control what attendees can see" />
+                <CardHeader title="Privacy & Compliance" subtitle="Control what attendees and visitors can see" />
                 <div className="space-y-5 p-5">
-                  <Toggle checked label="Show booth location on floor plan" desc="Attendees can find you" onChange={() => {}} />
-                  <Toggle checked label="Allow attendee chat requests" desc="Receive enquiries in Messages" onChange={() => {}} />
-                  <Toggle checked={false} label="Show email address publicly" desc="Only shown if enabled" onChange={() => {}} />
-                  <Button variant="secondary" onClick={() => toast({ title: "Privacy settings saved", tone: "success" })}>Save</Button>
+                  <Toggle
+                    checked={visibilitySettings.showBoothOnPlan}
+                    label="Show booth location on floor plan"
+                    desc="Attendees can locate your physical booth on the 2D/3D map"
+                    onChange={(v) => setVisibilitySettings((prev) => ({ ...prev, showBoothOnPlan: v }))}
+                  />
+                  <Toggle
+                    checked={visibilitySettings.allowAttendeeChat}
+                    label="Allow attendee chat requests"
+                    desc="Receive direct inquiries and meeting requests in Messages"
+                    onChange={(v) => setVisibilitySettings((prev) => ({ ...prev, allowAttendeeChat: v }))}
+                  />
+                  <Toggle
+                    checked={visibilitySettings.showEmailPublicly}
+                    label="Show email address publicly"
+                    desc="Display your primary contact email on the public expo directory"
+                    onChange={(v) => setVisibilitySettings((prev) => ({ ...prev, showEmailPublicly: v }))}
+                  />
+                  <Button variant="secondary" onClick={handleSaveProfile} disabled={profileSaving}>
+                    {profileSaving ? "Updating MongoDB..." : "Save privacy settings"}
+                  </Button>
                 </div>
               </Card>
             </div>

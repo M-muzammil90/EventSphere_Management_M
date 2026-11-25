@@ -1,5 +1,6 @@
 import User from "../models/User.js";
-import { verifyToken } from "../utils/generateToken.js";
+import RevokedToken from "../models/RevokedToken.js";
+import { verifyToken, hashToken } from "../utils/generateToken.js";
 import { ApiError } from "../utils/ApiResponse.js";
 
 /**
@@ -16,6 +17,11 @@ export const protect = async (req, _res, next) => {
     if (!token) throw ApiError.unauthorized("Not authenticated — please sign in");
 
     const decoded = verifyToken(token);
+
+    // Check token revocation list (populated on logout)
+    const revoked = await RevokedToken.exists({ tokenHash: hashToken(token) });
+    if (revoked) throw ApiError.unauthorized("Session has been revoked — please sign in again");
+
     const user = await User.findById(decoded.id).select("+passwordChangedAt");
 
     if (!user) throw ApiError.unauthorized("The account for this session no longer exists");
